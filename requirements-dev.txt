@@ -1,0 +1,4 @@
+# dev/test-only deps
+-r requirements.txt
+moto[kms,s3,secretsmanager,dynamodb]>=5
+# NOTE: the M2 model runs as a docker container (llama.cpp, `make model`), not a Python dep.

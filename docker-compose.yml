@@ -1,0 +1,39 @@
+services:
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    # quote so the image's entrypoint parses a single arg string
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--block-time", "1"]
+    ports:
+      - "8545:8545"
+
+  localstack:
+    # Pinned to the Community v3 line. NOTE: newer `latest` images require a LOCALSTACK_AUTH_TOKEN
+    # even at startup; the v3 community image runs S3/KMS/SecretsManager/DynamoDB/SQS with no token.
+    image: localstack/localstack:3.8.1
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3,kms,secretsmanager,dynamodb,sqs
+      - DEBUG=0
+      - AWS_DEFAULT_REGION=us-east-1
+    volumes:
+      # auto-seed buckets/keys/tables/queues once LocalStack reports ready
+      - "./localstack/init.sh:/etc/localstack/init/ready.d/init.sh"
+
+  # Model node — llama.cpp OpenAI-compatible server, CPU. This containerized model stands in for
+  # an EC2 GPU/compute instance (MLX/Metal can't run in a Linux container, so the local container
+  # uses CPU llama.cpp). Not started by `make up`; bring it up with `make model` (first run pulls
+  # the image and downloads the GGUF into the cache volume). Tests use the `stub` backend and need
+  # this not at all.
+  model:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    command: >
+      -hf ${MODEL_GGUF:-Qwen/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M}
+      -c 4096 --host 0.0.0.0 --port 8081 --jinja
+    ports:
+      - "8081:8081"
+    volumes:
+      - "llama-cache:/root/.cache/llama.cpp"
+
+volumes:
+  llama-cache:

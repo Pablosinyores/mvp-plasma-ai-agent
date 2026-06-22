@@ -1,0 +1,23 @@
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/lib/
+
+# local state
+.agent/
+contracts/deployments/local.json
+
+# env: .env is local config (copied from .env.example); never commit it
+.env
+.env.local
+
+# tool caches
+.pytest_cache/
+.code-review-graph/
+graphify-out/
