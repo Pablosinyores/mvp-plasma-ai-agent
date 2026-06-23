@@ -57,10 +57,15 @@ class LocalAdapter:
         tx.setdefault("from", account.address)
         tx.setdefault("nonce", self.w3.eth.get_transaction_count(account.address))
         tx.setdefault("chainId", self.cfg.chain_id)
-        # EIP-1559 fees, unless the tx already carries fee fields (e.g. from build_transaction)
+        # EIP-1559 fees, unless the tx already carries fee fields (e.g. from build_transaction).
+        # Priority fee is capped at the chain's current gas price so it can never exceed maxFee —
+        # on ultra-cheap chains (e.g. Plasma, base fee ~1e-7 gwei) a hardcoded 1 gwei tip would be
+        # larger than maxFee and the node would reject the tx ("max fee < max priority fee").
         if "gasPrice" not in tx and "maxFeePerGas" not in tx:
-            tx["maxFeePerGas"] = self.w3.eth.gas_price * 2
-            tx["maxPriorityFeePerGas"] = self.w3.to_wei(1, "gwei")
+            base = self.w3.eth.gas_price
+            tip = min(self.w3.to_wei(1, "gwei"), base)
+            tx["maxPriorityFeePerGas"] = tip
+            tx["maxFeePerGas"] = base * 2 + tip
         if "gas" not in tx:
             tx["gas"] = int(self.w3.eth.estimate_gas(tx) * 1.2)
         signed = account.sign_transaction(tx)

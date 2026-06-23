@@ -1,3 +1,7 @@
+# Pinned project name so containers stay `mvp-plasma-ai-agent-*` no matter which dir compose
+# runs from (this file lives in infra/, but callers may invoke with -f or a different cwd).
+name: mvp-plasma-ai-agent
+
 services:
   anvil:
     image: ghcr.io/foundry-rs/foundry:latest
