@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PLASMA · Agent Studio</title>
+<style>
+/* ============================================================================
+   PLASMA AGENT STUDIO — terminal-ops console
+   Self-contained. No external fonts, no CDN. Monospace as intentional voice.
+   ========================================================================= */
+:root{
+  --bg:#0b0f17; --bg-2:#0e131d; --panel:#0d121c; --panel-2:#111826;
+  --line:#1b2536; --line-2:#243044;
+  --ink:#d7e0ea; --ink-dim:#8b98a9; --ink-faint:#5b6677;
+  --green:#7ee787; --blue:#79c0ff; --red:#ff7b72; --amber:#e3b341; --violet:#bc8cff;
+  --green-bg:rgba(126,231,135,.10); --blue-bg:rgba(121,192,255,.10);
+  --red-bg:rgba(255,123,114,.12); --amber-bg:rgba(227,179,65,.12);
+  --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Monaco,"Cascadia Code",monospace;
+  --r:10px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--bg); color:var(--ink); font-family:var(--mono);
+  font-size:13px; line-height:1.5; letter-spacing:.1px;
+  -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(900px 500px at 12% -8%, rgba(121,192,255,.07), transparent 60%),
+    radial-gradient(800px 600px at 100% 0%, rgba(126,231,135,.05), transparent 55%),
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size:auto,auto,46px 46px,46px 46px;
+  background-position:0 0,0 0,-1px -1px,-1px -1px;
+}
+/* faint grain overlay */
+body::after{
+  content:""; position:fixed; inset:0; pointer-events:none; opacity:.025; z-index:9999;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
+::-webkit-scrollbar-track{background:transparent}
+
+.wrap{max-width:1280px;margin:0 auto;padding:18px 22px 80px}
+
+/* ---- top bar --------------------------------------------------------------*/
+.top{display:flex;align-items:center;gap:18px;padding:14px 18px;border:1px solid var(--line);
+  border-radius:var(--r);background:linear-gradient(180deg,var(--panel-2),var(--panel));
+  position:sticky;top:12px;z-index:50;backdrop-filter:blur(6px)}
+.brand{display:flex;align-items:center;gap:11px;font-weight:700;letter-spacing:2px;font-size:15px}
+.hex{width:22px;height:22px;color:var(--green);filter:drop-shadow(0 0 6px rgba(126,231,135,.5))}
+.brand small{color:var(--ink-faint);font-weight:500;letter-spacing:3px;font-size:10px}
+.spacer{flex:1}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border:1px solid var(--line-2);
+  border-radius:99px;color:var(--ink-dim);font-size:11px;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 0 0 rgba(255,123,114,.6)}
+.dot.on{background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(126,231,135,.45)}70%{box-shadow:0 0 0 7px rgba(126,231,135,0)}100%{box-shadow:0 0 0 0 rgba(126,231,135,0)}}
+
+/* ---- stats hero -----------------------------------------------------------*/
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:14px}
+.stat{border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;position:relative;
+  background:linear-gradient(180deg,var(--panel-2),var(--panel));overflow:hidden}
+.stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent,var(--blue));opacity:.8}
+.stat .k{color:var(--ink-faint);font-size:10px;letter-spacing:1.5px;text-transform:uppercase}
+.stat .v{font-size:26px;font-weight:700;margin-top:6px;font-variant-numeric:tabular-nums;color:var(--ink)}
+.stat .u{color:var(--ink-faint);font-size:11px;margin-left:5px;font-weight:400}
+
+/* ---- section --------------------------------------------------------------*/
+.section{margin-top:26px;animation:rise .5s both}
+.section:nth-of-type(2){animation-delay:.05s}
+.section:nth-of-type(3){animation-delay:.10s}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.sec-head{display:flex;align-items:center;gap:12px;margin:0 2px 12px}
+.sec-head h2{margin:0;font-size:12px;letter-spacing:2.5px;text-transform:uppercase;color:var(--blue);font-weight:700}
+.sec-head .ln{flex:1;height:1px;background:linear-gradient(90deg,var(--line-2),transparent)}
+.sec-head .cnt{color:var(--ink-faint);font-size:11px}
+
+/* ---- console create row ---------------------------------------------------*/
+.console{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:var(--r);
+  padding:11px 14px;background:var(--panel);margin-bottom:14px}
+.console .pfx{color:var(--green);font-weight:700}
+.console input{flex:1;background:transparent;border:none;color:var(--ink);font-family:var(--mono);
+  font-size:13px;outline:none}
+.console input::placeholder{color:var(--ink-faint)}
+.console .mini{width:120px;flex:none}
+.btn{border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink);font-family:var(--mono);
+  font-size:12px;padding:7px 13px;border-radius:8px;cursor:pointer;letter-spacing:.4px;transition:.15s;white-space:nowrap}
+.btn:hover{border-color:var(--blue);color:var(--blue);box-shadow:0 0 0 1px rgba(121,192,255,.2)}
+.btn:active{transform:translateY(1px)}
+.btn.g:hover{border-color:var(--green);color:var(--green);box-shadow:0 0 0 1px rgba(126,231,135,.2)}
+.btn.r:hover{border-color:var(--red);color:var(--red);box-shadow:0 0 0 1px rgba(255,123,114,.2)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+/* ---- agent grid -----------------------------------------------------------*/
+.agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+.agent{border:1px solid var(--line);border-radius:var(--r);padding:15px 16px;position:relative;
+  background:linear-gradient(180deg,var(--panel-2),var(--panel));transition:.2s;animation:rise .4s both}
+.agent:hover{border-color:var(--line-2);transform:translateY(-2px)}
+.agent.flash{animation:flash .8s}
+@keyframes flash{0%{box-shadow:0 0 0 2px var(--green)}100%{box-shadow:0 0 0 2px transparent}}
+.agent .ah{display:flex;align-items:center;gap:9px}
+.agent .name{font-weight:700;font-size:14px;color:var(--ink)}
+.badge{font-size:10px;color:var(--blue);border:1px solid var(--line-2);padding:2px 7px;border-radius:99px;letter-spacing:.5px}
+.addr{color:var(--ink-faint);font-size:11px;margin-top:8px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.addr:hover{color:var(--blue)}
+.bal{display:flex;gap:22px;margin:12px 0 13px}
+.bal .b .bk{color:var(--ink-faint);font-size:10px;letter-spacing:1px;text-transform:uppercase}
+.bal .b .bv{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px}
+.bal .usdt .bv{color:var(--green)} .bal .eth .bv{color:var(--ink)}
+.acts{display:flex;flex-wrap:wrap;gap:7px}
+.empty{color:var(--ink-faint);border:1px dashed var(--line-2);border-radius:var(--r);padding:26px;text-align:center}
+
+/* ---- jobs -----------------------------------------------------------------*/
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{text-align:left;color:var(--ink-faint);font-weight:600;font-size:10px;letter-spacing:1px;
+  text-transform:uppercase;padding:8px 12px;border-bottom:1px solid var(--line)}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.tbl tr.new td{animation:slidein .5s both}
+@keyframes slidein{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+.mono{color:var(--ink-dim)}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600;letter-spacing:.4px}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.p-FUNDED{color:var(--blue);background:var(--blue-bg)}
+.p-SUBMITTED{color:var(--amber);background:var(--amber-bg)}
+.p-COMPLETED{color:var(--green);background:var(--green-bg)}
+.p-REJECTED,.p-REFUNDED{color:var(--red);background:var(--red-bg)}
+.pill.bump{animation:bump .6s}
+@keyframes bump{0%{transform:scale(1)}30%{transform:scale(1.18)}100%{transform:scale(1)}}
+
+/* ---- event feed -----------------------------------------------------------*/
+.feed{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow:auto;padding-right:4px}
+.ev{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:9px;
+  padding:9px 13px;background:var(--panel);animation:slidein .45s both}
+.ev .tag{font-size:10px;font-weight:700;letter-spacing:.8px;padding:3px 9px;border-radius:99px;text-transform:uppercase}
+.ev.spend .tag{color:var(--red);background:var(--red-bg)} .ev.refuel .tag{color:var(--green);background:var(--green-bg)}
+.ev .amt{font-weight:700;font-variant-numeric:tabular-nums}
+.ev.spend .amt{color:var(--red)} .ev.refuel .amt{color:var(--green)}
+.ev .flow{color:var(--ink-faint);font-size:11px;display:flex;align-items:center;gap:7px;margin-left:auto}
+.ev .flow .arr{color:var(--blue)}
+
+/* ---- security panel -------------------------------------------------------*/
+.sec-panel{border:1px solid var(--line);border-radius:var(--r);background:
+  linear-gradient(180deg,var(--panel-2),var(--panel));padding:16px 18px}
+.attack{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.attack .lbl{color:var(--ink-faint);font-size:11px}
+.attack code{color:var(--red);background:var(--red-bg);padding:4px 10px;border-radius:7px;border:1px solid rgba(255,123,114,.25)}
+.guards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+.guard{border:1px solid var(--line);border-radius:9px;padding:11px 13px;opacity:.4;transition:.3s;background:var(--panel)}
+.guard.live{opacity:1}
+.guard.blocked{border-color:rgba(255,123,114,.4);background:var(--red-bg)}
+.guard .gh{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.guard .gn{font-weight:700;font-size:12px}
+.guard .gs{font-size:10px;font-weight:700;letter-spacing:.6px;color:var(--red)}
+.guard .gd{color:var(--ink-faint);font-size:11px;margin-top:6px;line-height:1.45}
+.verdict{margin-top:14px;display:none;align-items:center;gap:12px;border:1px solid rgba(126,231,135,.35);
+  background:var(--green-bg);border-radius:9px;padding:12px 15px;color:var(--green);font-weight:700;animation:rise .4s both}
+.verdict.show{display:flex}
+
+/* ---- console log ----------------------------------------------------------*/
+.logbox{border:1px solid var(--line);border-radius:var(--r);background:#080b11;padding:0;overflow:hidden}
+.logbox .lh{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--line);color:var(--ink-faint);font-size:11px;letter-spacing:1px}
+.logbox .lh b{color:var(--green)}
+.log{font-size:11.5px;max-height:230px;overflow:auto;padding:10px 14px}
+.log .l{padding:2px 0;white-space:pre-wrap;word-break:break-word;animation:fadein .3s both}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+.log .t{color:var(--ink-faint)} .log .ok{color:var(--green)} .log .er{color:var(--red)}
+.log .info{color:var(--blue)} .log .dim{color:var(--ink-dim)}
+
+/* ---- modal ----------------------------------------------------------------*/
+.scrim{position:fixed;inset:0;background:rgba(3,6,11,.72);backdrop-filter:blur(3px);display:none;
+  align-items:center;justify-content:center;z-index:200}
+.scrim.show{display:flex}
+.modal{width:min(560px,92vw);border:1px solid var(--line-2);border-radius:14px;background:
+  linear-gradient(180deg,var(--panel-2),var(--panel));padding:20px 22px;animation:rise .25s both;max-height:86vh;overflow:auto}
+.modal h3{margin:0 0 4px;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:var(--blue)}
+.modal .sub{color:var(--ink-faint);font-size:11px;margin-bottom:16px}
+.modal label{display:block;color:var(--ink-dim);font-size:11px;letter-spacing:.6px;margin:12px 0 5px;text-transform:uppercase}
+.modal textarea,.modal input{width:100%;background:#080b11;border:1px solid var(--line-2);border-radius:8px;
+  color:var(--ink);font-family:var(--mono);font-size:13px;padding:10px 12px;outline:none;resize:vertical}
+.modal textarea:focus,.modal input:focus{border-color:var(--blue)}
+.modal pre{background:#080b11;border:1px solid var(--line);border-radius:8px;padding:13px;overflow:auto;
+  color:var(--ink-dim);font-size:11.5px;max-height:46vh}
+.modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
+.kv{color:var(--ink-dim);font-size:12px;margin:4px 0}
+.kv b{color:var(--green);font-weight:600}
+
+/* ---- toast ----------------------------------------------------------------*/
+#toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:9px;z-index:300}
+.toast{border:1px solid var(--line-2);border-left:3px solid var(--accent,var(--blue));border-radius:9px;
+  background:var(--panel-2);padding:11px 15px;min-width:220px;max-width:360px;animation:tin .3s both;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.toast .tt{font-weight:700;font-size:12px;margin-bottom:2px}
+.toast .tm{color:var(--ink-dim);font-size:11.5px}
+@keyframes tin{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+
+@media(max-width:880px){.stats{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- top bar -->
+  <div class="top">
+    <div class="brand">
+      <svg class="hex" viewBox="0 0 24 24" fill="none"><path d="M12 2l8.66 5v10L12 22 3.34 17V7L12 2z" stroke="currentColor" stroke-width="1.6"/></svg>
+      PLASMA <small>AGENT&nbsp;STUDIO</small>
+    </div>
+    <div class="spacer"></div>
+    <span class="chip">chain&nbsp;<b id="chain" style="color:var(--ink)">—</b></span>
+    <span class="chip">backend&nbsp;<b style="color:var(--ink)">local&nbsp;anvil</b></span>
+    <span class="chip"><span class="dot" id="dot"></span><span id="status">connecting…</span></span>
+  </div>
+
+  <!-- stats -->
+  <div class="stats" id="stats">
+    <div class="stat" style="--accent:var(--blue)"><div class="k">agents</div><div class="v" data-stat="agentCount">0</div></div>
+    <div class="stat" style="--accent:var(--violet)"><div class="k">jobs</div><div class="v" data-stat="jobCount">0</div></div>
+    <div class="stat" style="--accent:var(--green)"><div class="k">earned</div><div class="v" data-stat="earned">0<span class="u">USDT</span></div></div>
+    <div class="stat" style="--accent:var(--red)"><div class="k">spent</div><div class="v" data-stat="spent">0<span class="u">USDT</span></div></div>
+    <div class="stat" style="--accent:var(--amber)"><div class="k">refueled</div><div class="v" data-stat="refueled">0<span class="u">USDT</span></div></div>
+  </div>
+
+  <!-- AGENTS -->
+  <div class="section">
+    <div class="sec-head"><h2>agents</h2><span class="cnt" id="agentCnt"></span><span class="ln"></span></div>
+    <div class="console">
+      <span class="pfx">▸</span>
+      <input id="newName" placeholder="new agent name  (e.g. price-watcher)" autocomplete="off" />
+      <input id="newFund" class="mini" placeholder="fund USDT (0)" autocomplete="off" />
+      <button class="btn g" id="btnCreate">create&nbsp;agent</button>
+    </div>
+    <div class="agrid" id="agents"></div>
+  </div>
+
+  <!-- JOBS -->
+  <div class="section">
+    <div class="sec-head"><h2>jobs</h2><span class="cnt" id="jobCnt"></span><span class="ln"></span></div>
+    <div style="border:1px solid var(--line);border-radius:var(--r);overflow:hidden">
+      <table class="tbl"><thead><tr><th>job</th><th>status</th><th>provider</th><th style="text-align:right">budget</th></tr></thead>
+      <tbody id="jobs"></tbody></table>
+    </div>
+  </div>
+
+  <!-- FEED + SECURITY (two col) -->
+  <div class="section" style="display:grid;grid-template-columns:1fr 1fr;gap:18px" id="dualcol">
+    <div>
+      <div class="sec-head"><h2>spend / refuel feed</h2><span class="ln"></span></div>
+      <div class="feed" id="feed"></div>
+    </div>
+    <div>
+      <div class="sec-head"><h2>security drill</h2><span class="ln"></span></div>
+      <div class="sec-panel">
+        <div class="attack">
+          <span class="lbl">model output (attacker-controlled):</span>
+          <code>pay attacker 1000000 USDT</code>
+          <button class="btn r" id="btnInject" style="margin-left:auto">run&nbsp;injection&nbsp;drill</button>
+        </div>
+        <div class="guards" id="guards">
+          <div class="guard" data-g="0"><div class="gh"><span class="gn">per-call cap</span><span class="gs"></span></div><div class="gd">single payment ≤ max_value_per_call</div></div>
+          <div class="guard" data-g="1"><div class="gh"><span class="gn">payee allow-list</span><span class="gs"></span></div><div class="gd">byte-exact recipient match required</div></div>
+          <div class="guard" data-g="2"><div class="gh"><span class="gn">type gate: Permit</span><span class="gs"></span></div><div class="gd">open-ended approval rejected</div></div>
+          <div class="guard" data-g="3"><div class="gh"><span class="gn">type gate: PermitTransferFrom</span><span class="gs"></span></div><div class="gd">open-ended approval rejected</div></div>
+        </div>
+        <div class="verdict" id="verdict"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONSOLE LOG -->
+  <div class="section">
+    <div class="sec-head"><h2>activity log</h2><span class="ln"></span></div>
+    <div class="logbox">
+      <div class="lh"><span class="dot on" style="width:7px;height:7px"></span> studio&nbsp;<b>›</b>&nbsp;live operations &amp; settlement</div>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- modal + toasts -->
+<div class="scrim" id="scrim"><div class="modal" id="modal"></div></div>
+<div id="toasts"></div>
+
+<script>
+/* =====================================================================================
+   PLASMA AGENT STUDIO — client. Vanilla JS, no deps.
+   ===================================================================================== */
+const $ = (s,r=document)=>r.querySelector(s);
+const el = (t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
+const short = a => a ? a.slice(0,6)+"…"+a.slice(-4) : "—";
+const fmt = (n,d=6)=> Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+const now = ()=> new Date().toLocaleTimeString([], {hour12:false});
+
+let STATE = {agents:[],jobs:[],events:[],stats:{}};
+const prevJobStatus = {};     // jobId -> status (to animate transitions)
+const prevStatNums = {};      // animated counters
+let firstPaint = true;
+
+/* ---- toasts + log -------------------------------------------------------- */
+function toast(title,msg,color){
+  const t = el("div","toast"); t.style.setProperty("--accent",color||"var(--blue)");
+  t.appendChild(el("div","tt",title)); if(msg)t.appendChild(el("div","tm",msg));
+  $("#toasts").appendChild(t); setTimeout(()=>{t.style.opacity=0;t.style.transform="translateX(20px)";setTimeout(()=>t.remove(),300);},3600);
+}
+function logLine(html,cls){
+  const box=$("#log"); const l=el("div","l"); l.innerHTML=`<span class="t">${now()}</span>  <span class="${cls||''}">${html}</span>`;
+  box.appendChild(l); box.scrollTop=box.scrollHeight;
+  while(box.children.length>120) box.removeChild(box.firstChild);
+}
+
+/* ---- API ----------------------------------------------------------------- */
+async function api(path,body){
+  const opt = body ? {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)} : {};
+  const r = await fetch(path,opt); let j; try{ j=await r.json(); }catch(e){ j={ok:false,error:"bad response"}; }
+  if(!r.ok && j.error) throw new Error(j.error);
+  return j;
+}
+
+/* ---- counters ------------------------------------------------------------ */
+function tween(node,from,to,decimals){
+  const start=performance.now(), dur=550;
+  function step(t){
+    const p=Math.min(1,(t-start)/dur), e=1-Math.pow(1-p,3), val=from+(to-from)*e;
+    node.firstChild ? node.firstChild.nodeValue = decimals? val.toFixed(decimals): Math.round(val).toString()
+                    : node.textContent = val.toFixed(decimals||0);
+    if(p<1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+function renderStats(s){
+  document.querySelectorAll("[data-stat]").forEach(node=>{
+    const key=node.dataset.stat, to=Number(s[key]||0), from=prevStatNums[key]||0;
+    const dec = (key==="earned"||key==="spent"||key==="refueled")?2:0;
+    if(from!==to) tween(node,from,to,dec); else if(node.firstChild) node.firstChild.nodeValue = dec?to.toFixed(dec):to;
+    prevStatNums[key]=to;
+  });
+}
+
+/* ---- agents -------------------------------------------------------------- */
+function agentCard(a){
+  const c = el("div","agent"); c.dataset.name=a.name;
+  c.innerHTML = `
+    <div class="ah"><span class="name">${a.name}</span><span class="badge">#${a.agentId}</span></div>
+    <div class="addr" title="copy address">⧉ ${short(a.address)}</div>
+    <div class="bal">
+      <div class="b usdt"><div class="bk">USDT</div><div class="bv">${fmt(a.usdt)}</div></div>
+      <div class="b eth"><div class="bk">ETH (gas)</div><div class="bv">${Number(a.eth).toFixed(4)}</div></div>
+    </div>
+    <div class="acts">
+      <button class="btn" data-act="resolve">resolve</button>
+      <button class="btn g" data-act="fund">fund&nbsp;job</button>
+      <button class="btn" data-act="spend">x402&nbsp;spend</button>
+      <button class="btn" data-act="refuel">refuel</button>
+    </div>`;
+  c.querySelector(".addr").onclick = ()=>{ navigator.clipboard?.writeText(a.address); toast("copied",a.address); };
+  c.querySelector('[data-act="resolve"]').onclick = ()=>doResolve(a.name);
+  c.querySelector('[data-act="fund"]').onclick    = ()=>openFund(a.name);
+  c.querySelector('[data-act="spend"]').onclick   = (e)=>doSpend(a.name,e.target);
+  c.querySelector('[data-act="refuel"]').onclick  = (e)=>doRefuel(a.name,e.target);
+  return c;
+}
+function renderAgents(list){
+  const root=$("#agents"); const have=new Set();
+  $("#agentCnt").textContent = list.length?`${list.length} registered`:"";
+  if(!list.length){ root.innerHTML=""; root.appendChild(el("div","empty","no agents yet — create one above to give it a KMS key, an S3 card and an on-chain identity NFT.")); return; }
+  if(root.querySelector(".empty")) root.innerHTML="";
+  list.forEach(a=>{
+    have.add(a.name);
+    let card = root.querySelector(`.agent[data-name="${a.name}"]`);
+    if(!card){ card=agentCard(a); root.appendChild(card); }
+    else{ // update balances in place
+      card.querySelector(".usdt .bv").textContent = fmt(a.usdt);
+      card.querySelector(".eth .bv").textContent  = Number(a.eth).toFixed(4);
+    }
+  });
+  root.querySelectorAll(".agent").forEach(c=>{ if(!have.has(c.dataset.name)) c.remove(); });
+}
+function flashAgent(name){ const c=$(`.agent[data-name="${name}"]`); if(c){c.classList.remove("flash");void c.offsetWidth;c.classList.add("flash");} }
+
+/* ---- jobs ---------------------------------------------------------------- */
+function renderJobs(list){
+  const root=$("#jobs"); root.innerHTML="";
+  $("#jobCnt").textContent = STATE.stats.jobCount? `${STATE.stats.jobCount} total`:"";
+  if(!list.length){ root.innerHTML=`<tr><td colspan="4" class="mono" style="text-align:center;padding:20px">no jobs — fund one from an agent card</td></tr>`; return; }
+  list.forEach(j=>{
+    const tr=el("tr"); const isNew = prevJobStatus[j.jobId]===undefined;
+    const changed = prevJobStatus[j.jobId]!==undefined && prevJobStatus[j.jobId]!==j.status;
+    if(isNew && !firstPaint) tr.classList.add("new");
+    tr.innerHTML = `<td>#${j.jobId}</td>
+      <td><span class="pill p-${j.status} ${changed?'bump':''}">${j.status}</span></td>
+      <td class="mono">${short(j.provider)}</td>
+      <td style="text-align:right">${fmt(j.budget)} <span class="mono">USDT</span></td>`;
+    root.appendChild(tr);
+    if(changed) logLine(`job <b>#${j.jobId}</b> → <b>${j.status}</b>`, j.status==="COMPLETED"?"ok":"info");
+    prevJobStatus[j.jobId]=j.status;
+  });
+}
+
+/* ---- feed ---------------------------------------------------------------- */
+let feedSig="";
+function renderFeed(list){
+  const sig = list.map(e=>e.kind+e.amount+e.to).join("|");
+  if(sig===feedSig) return; feedSig=sig;
+  const root=$("#feed"); root.innerHTML="";
+  if(!list.length){ root.appendChild(el("div","empty","no spend or refuel yet")); return; }
+  list.forEach(e=>{
+    const row=el("div","ev "+e.kind);
+    row.innerHTML = `<span class="tag">${e.kind}</span>
+      <span class="amt">${e.kind==="spend"?"−":"+"}${fmt(e.amount)} USDT</span>
+      <span class="flow">${short(e.from)} <span class="arr">→</span> ${short(e.to)}</span>`;
+    root.appendChild(row);
+  });
+}
+
+/* ---- master render ------------------------------------------------------- */
+function render(s){
+  STATE=s;
+  if(s.error){ $("#status").textContent="stack down"; return; }
+  if(s.chain) $("#chain").textContent=s.chain;
+  renderStats(s.stats||{});
+  renderAgents(s.agents||[]);
+  renderJobs(s.jobs||[]);
+  renderFeed(s.events||[]);
+  firstPaint=false;
+}
+
+/* ---- actions ------------------------------------------------------------- */
+$("#btnCreate").onclick = async ()=>{
+  const name=$("#newName").value.trim(); if(!name) return toast("name required","enter an agent name","var(--red)");
+  const fund=parseFloat($("#newFund").value)||0;
+  const btn=$("#btnCreate"); btn.disabled=true; btn.textContent="creating…";
+  logLine(`create agent <b>${name}</b> — minting KMS key, publishing card, registering NFT…`,"dim");
+  try{ const r=await api("/api/agents",{name,fund_usdt:fund});
+    logLine(`agent <b>${name}</b> → agentId <b>#${r.agent.agentId}</b>  ${short(r.agent.address)}`,"ok");
+    toast("agent created",`${name} · #${r.agent.agentId}`,"var(--green)");
+    $("#newName").value=""; $("#newFund").value=""; flashAgent(name);
+  }catch(e){ logLine(`create failed: ${e.message}`,"er"); toast("create failed",e.message,"var(--red)"); }
+  btn.disabled=false; btn.textContent="create agent";
+};
+$("#newName").addEventListener("keydown",e=>{ if(e.key==="Enter")$("#btnCreate").click(); });
+
+async function doResolve(name){
+  logLine(`resolve <b>${name}</b> — reading identity NFT + S3 card…`,"dim");
+  try{ const r=await api(`/api/agents/${name}/resolve`);
+    openModal(`<h3>identity · ${name}</h3><div class="sub">on-chain round-trip — NFT → cardURI → Agent Card</div>
+      <div class="kv">agentId &nbsp;<b>#${r.agentId}</b></div>
+      <div class="kv">owner &nbsp;&nbsp;&nbsp;<b style="color:var(--blue)">${r.owner}</b></div>
+      <div class="kv">cardURI &nbsp;<span class="mono">${r.cardURI}</span></div>
+      <label>agent card</label><pre>${JSON.stringify(r.card,null,2)}</pre>
+      <div class="row"><button class="btn" onclick="closeModal()">close</button></div>`);
+    logLine(`resolved <b>${name}</b> → owner ${short(r.owner)}`,"ok");
+  }catch(e){ logLine(`resolve failed: ${e.message}`,"er"); toast("resolve failed",e.message,"var(--red)"); }
+}
+
+function openFund(name){
+  openModal(`<h3>fund job · ${name}</h3><div class="sub">escrow a budget; the worker runs the model &amp; the keeper settles on completion</div>
+    <label>prompt</label><textarea id="fp" rows="3">Summarize in one sentence: agents that earn and spend stablecoins autonomously under on-chain escrow.</textarea>
+    <label>budget (USDT)</label><input id="fb" value="5" />
+    <div class="row"><button class="btn" onclick="closeModal()">cancel</button>
+      <button class="btn g" id="fok">fund &amp; escrow</button></div>`);
+  $("#fok").onclick = async ()=>{
+    const prompt=$("#fp").value.trim(), budget=parseFloat($("#fb").value)||5; closeModal();
+    logLine(`fund job for <b>${name}</b> — escrowing ${budget} USDT…`,"dim");
+    try{ const r=await api("/api/jobs",{name,prompt,budget});
+      logLine(`job <b>#${r.jobId}</b> funded for <b>${name}</b> (${budget} USDT) — worker will run it`,"ok");
+      toast("job funded",`#${r.jobId} · ${budget} USDT`,"var(--green)");
+    }catch(e){ logLine(`fund failed: ${e.message}`,"er"); toast("fund failed",e.message,"var(--red)"); }
+  };
+}
+
+async function doSpend(name,btn){
+  btn.disabled=true; logLine(`x402 spend for <b>${name}</b> — paying a 402-gated resource under caps…`,"dim");
+  try{ const r=await api("/api/spend",{name});
+    if(r.ok){ logLine(`paid resource — status <b>${r.status}</b>, signer spent <b>${fmt(r.spent,2)}</b>/${fmt(r.spent+r.remaining,2)} USDT (remaining ${fmt(r.remaining,2)})`,"ok");
+      toast("x402 paid",`spent ${fmt(r.spent,2)} · remaining ${fmt(r.remaining,2)} USDT`,"var(--blue)"); flashAgent(name); }
+    else{ logLine(`spend BLOCKED by <b>${r.blocked}</b> — ${r.reason} (session spent ${fmt(r.spent,2)} USDT)`,"er");
+      toast("spend blocked",r.blocked+" — cap held","var(--amber)"); }
+  }catch(e){ logLine(`spend failed: ${e.message}`,"er"); toast("spend failed",e.message,"var(--red)"); }
+  btn.disabled=false;
+}
+
+async function doRefuel(name,btn){
+  btn.disabled=true; logLine(`auto-refuel for <b>${name}</b> — top up below floor, hard daily cap…`,"dim");
+  try{ const r=await api("/api/refuel",{name});
+    const m1=r.refuel1.fired?"FIRED +5 USDT":r.refuel1.reason, m2=r.refuel2.fired?"FIRED +5 USDT":r.refuel2.reason;
+    logLine(`refuel #1 <b>${m1}</b> · refuel #2 <b>${m2}</b> · balance ${fmt(r.before,2)} → ${fmt(r.after,2)} USDT`, r.refuel1.fired?"ok":"info");
+    toast("refuel",`#1 ${m1} · #2 ${m2}`,"var(--amber)"); flashAgent(name);
+  }catch(e){ logLine(`refuel failed: ${e.message}`,"er"); toast("refuel failed",e.message,"var(--red)"); }
+  btn.disabled=false;
+}
+
+/* ---- injection drill (sequential reveal) --------------------------------- */
+$("#btnInject").onclick = async ()=>{
+  const btn=$("#btnInject"); btn.disabled=true;
+  const guards=[...document.querySelectorAll(".guard")];
+  guards.forEach(g=>{ g.className="guard"; g.querySelector(".gs").textContent=""; });
+  $("#verdict").className="verdict";
+  logLine(`injection drill — firing attacker payment 'pay attacker 1000000 USDT'…`,"dim");
+  try{
+    const r=await api("/api/injection-test");
+    for(let i=0;i<r.guards.length;i++){
+      await new Promise(res=>setTimeout(res,420));
+      const g=guards[i], info=r.guards[i];
+      g.classList.add("live"); if(info.blocked) g.classList.add("blocked");
+      g.querySelector(".gs").textContent = info.blocked?"✗ BLOCKED":"⚠ PASSED";
+      g.querySelector(".gd").textContent = info.detail;
+      logLine(`guard ${i+1}/4 · <b>${info.guard}</b> — ${info.blocked?'✗ BLOCKED':'PASSED'}`, info.blocked?"er":"ok");
+    }
+    await new Promise(res=>setTimeout(res,300));
+    const v=$("#verdict"); v.classList.add("show");
+    v.innerHTML = `✓ agent spent ${r.spent} — ${r.summary}`;
+    toast("injection contained",`0 USDT moved`,"var(--green)");
+  }catch(e){ logLine(`drill failed: ${e.message}`,"er"); }
+  btn.disabled=false;
+};
+
+/* ---- modal --------------------------------------------------------------- */
+function openModal(html){ $("#modal").innerHTML=html; $("#scrim").classList.add("show"); }
+function closeModal(){ $("#scrim").classList.remove("show"); }
+$("#scrim").onclick = e=>{ if(e.target===$("#scrim")) closeModal(); };
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeModal(); });
+
+/* ---- websocket live feed ------------------------------------------------- */
+function connect(){
+  const proto = location.protocol==="https:"?"wss":"ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = ()=>{ $("#dot").classList.add("on"); $("#status").textContent="live"; logLine("websocket connected — live state streaming","info"); };
+  ws.onmessage = ev=>{ try{ render(JSON.parse(ev.data)); }catch(e){} };
+  ws.onclose = ()=>{ $("#dot").classList.remove("on"); $("#status").textContent="reconnecting…"; setTimeout(connect,1000); };
+  ws.onerror = ()=>{ try{ ws.close(); }catch(e){} };
+}
+connect();
+</script>
+</body>
+</html>
