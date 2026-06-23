@@ -14,10 +14,13 @@ import sys
 import time
 from pathlib import Path
 
-# make the sibling sdk/ + repo root importable without an install step
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "sdk"))
-sys.path.insert(0, str(REPO_ROOT))
+# backend/ is the python import root (sdk/, runtime/, model/, .agent live here).
+# the monorepo root is one level up and holds contracts/ + infra/ (the docker stack).
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+MONO_ROOT = BACKEND_ROOT.parent
+REPO_ROOT = BACKEND_ROOT  # backwards-compat alias for the sdk path + AGENT_DIR below
+sys.path.insert(0, str(BACKEND_ROOT / "sdk"))
+sys.path.insert(0, str(BACKEND_ROOT))
 
 import typer  # noqa: E402
 from eth_utils import keccak  # noqa: E402
@@ -41,17 +44,17 @@ def _sh(cmd, cwd=None, check=True):
 @app.command()
 def up():
     """Boot infra (anvil + localstack), seed AWS resources, build + deploy contracts."""
-    _sh(["docker", "compose", "up", "-d"], cwd=REPO_ROOT)
+    _sh(["docker", "compose", "up", "-d"], cwd=MONO_ROOT / "infra")
     typer.echo("waiting for services to become healthy...")
     _wait_healthy()
-    _sh(["forge", "build"], cwd=REPO_ROOT / "contracts")
+    _sh(["forge", "build"], cwd=MONO_ROOT / "contracts")
     cfg = load_config()
     # vm.writeJson won't create the dir — ensure it exists before deploy.
     # RELAYER_PK is read by the deploy script from the environment (load_config seeded it from .env).
     cfg.deployments_path.parent.mkdir(parents=True, exist_ok=True)
     _sh(
         ["forge", "script", "script/Deploy.s.sol:Deploy", "--rpc-url", cfg.rpc_url, "--broadcast"],
-        cwd=REPO_ROOT / "contracts",
+        cwd=MONO_ROOT / "contracts",
     )
     Storage().ensure_bucket()
     typer.secho("up: ready.", fg=typer.colors.GREEN)
@@ -60,7 +63,7 @@ def up():
 @app.command()
 def down():
     """Tear down all infra and volumes."""
-    _sh(["docker", "compose", "down", "-v"], cwd=REPO_ROOT, check=False)
+    _sh(["docker", "compose", "down", "-v"], cwd=MONO_ROOT / "infra", check=False)
 
 
 @app.command()
@@ -100,8 +103,10 @@ def _create_agent(name: str, fund_usdt: float = 0.0):
     address = kv.new_agent_key(name)
     typer.echo("agent key created (KMS-encrypted): {}".format(address))
 
-    # give the agent gas so it can self-sign its registration
-    adapter.fund_eth(address, 1.0)
+    # give the agent a tiny native-gas float so it can self-sign its own contract calls
+    # (register/createJob/fund/submit/settle). Gas on Plasma is ~1e-7 gwei, so 0.001 XPL is
+    # ~1000x headroom; the unused remainder stays in the agent wallet (not burned).
+    adapter.fund_eth(address, 0.001)
     if fund_usdt > 0:
         adapter.mint_usdt(address, int(fund_usdt * 1_000_000))
 
@@ -238,12 +243,26 @@ def demo(name: str = "demo", prompt: str = "Summarize: agents that earn stableco
 
 
 @app.command()
+def serve(port: int = 8080):
+    """Launch the Studio API server — REST + WebSocket live state + bundled UI — on :8080.
+
+    This is the backend the React studio-frontend talks to (create agents, fund jobs, spend,
+    refuel, run the injection drill) over JSON + /ws, plus a self-contained fallback UI at `/`.
+    """
+    _serve(port)
+
+
+@app.command(hidden=True)
 def dashboard(port: int = 8080):
-    """Launch the read-only observability dashboard (agents, balances, jobs, spend feed)."""
+    """Deprecated alias for `serve` (kept so old `studio dashboard` muscle-memory still works)."""
+    _serve(port)
+
+
+def _serve(port: int):
     import uvicorn
 
-    typer.echo("dashboard on http://localhost:{}  (chain + DynamoDB + spend feed)".format(port))
-    uvicorn.run("dashboard.app:app", host="127.0.0.1", port=port, log_level="warning")
+    typer.echo("studio api on http://localhost:{}  (REST + /ws live state + UI)".format(port))
+    uvicorn.run("studio_api.app:app", host="127.0.0.1", port=port, log_level="warning")
 
 
 @app.command()

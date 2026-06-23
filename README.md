@@ -5,13 +5,14 @@ AI agent, the agent gets an **on-chain identity + wallet**, **earns** stablecoin
 jobs, and **spends** stablecoin to pay for the work it does — with the **LLM model running locally**
 (no cloud LLM keys, no testnet, no cloud hosting required).
 
-This MVP keeps the *same conceptual design* as [`../PLASMA-AGENT-STUDIO-DESIGN.md`](../PLASMA-AGENT-STUDIO-DESIGN.md)
-(Identity · Commerce/Escrow · Payment · Memory) but swaps every external dependency for a local
-equivalent so the whole system runs on one laptop and is testable end-to-end.
+This MVP keeps the *same conceptual design* as the full Plasma Agent Studio
+(Identity · Commerce/Escrow · Payment · Memory) — see [`ARCHITECTURE.md`](./ARCHITECTURE.md) — but
+swaps every external dependency for a local equivalent so the whole system runs on one laptop and is
+testable end-to-end.
 
-The local emulation backbone is **[LocalStack](https://www.localstack.cloud/localstack-for-aws)**
-(the tool from the reference video, `_PD4j5Ra3kY`): it runs the **same AWS services the cloud design
-depends on — S3, KMS, Secrets Manager, DynamoDB, SQS — entirely on localhost**. That keeps the
+The local emulation backbone is **[LocalStack](https://www.localstack.cloud/localstack-for-aws)**:
+it runs the **same AWS services the cloud design depends on — S3, KMS, Secrets Manager, DynamoDB,
+SQS — entirely on localhost**. That keeps the
 architecture *identical* to production; only the endpoint URL changes when you go to real AWS.
 
 | Full design (cloud + Plasma) | This MVP (local) |

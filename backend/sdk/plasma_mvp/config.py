@@ -7,8 +7,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-# repo root = two levels up from this file (sdk/plasma_mvp/config.py -> repo root)
-REPO_ROOT = Path(__file__).resolve().parents[2]
+# monorepo root: backend/sdk/plasma_mvp/config.py -> repo root (contracts/, infra/, .env live here)
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _load_dotenv(path: Path) -> None:
