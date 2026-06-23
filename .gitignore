@@ -21,3 +21,6 @@ contracts/deployments/local.json
 .pytest_cache/
 .code-review-graph/
 graphify-out/
+
+# recordings (screen-capture MP4s)
+recordings/
