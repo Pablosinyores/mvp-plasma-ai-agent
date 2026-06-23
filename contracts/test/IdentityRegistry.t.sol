@@ -61,4 +61,11 @@ contract IdentityRegistryTest is Test {
         vm.expectRevert("no such agent");
         reg.cardURI(999);
     }
+
+    function test_supportsInterface() public view {
+        assertTrue(reg.supportsInterface(0x01ffc9a7)); // ERC-165
+        assertTrue(reg.supportsInterface(0x5b5e139f)); // ERC-721 Metadata
+        assertFalse(reg.supportsInterface(0x80ac58cd)); // full ERC-721 — soulbound, not advertised
+        assertFalse(reg.supportsInterface(0xffffffff));
+    }
 }

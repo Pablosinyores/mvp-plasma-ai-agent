@@ -21,6 +21,12 @@ contract MockUSDT {
     bytes32 public constant TRANSFER_WITH_AUTHORIZATION_TYPEHASH = keccak256(
         "TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)"
     );
+    bytes32 public constant RECEIVE_WITH_AUTHORIZATION_TYPEHASH = keccak256(
+        "ReceiveWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)"
+    );
+    bytes32 public constant CANCEL_AUTHORIZATION_TYPEHASH = keccak256(
+        "CancelAuthorization(address authorizer,bytes32 nonce)"
+    );
 
     bytes32 private immutable _CACHED_DOMAIN_SEPARATOR;
     uint256 private immutable _CACHED_CHAIN_ID;
@@ -31,6 +37,7 @@ contract MockUSDT {
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
     event AuthorizationUsed(address indexed authorizer, bytes32 indexed nonce);
+    event AuthorizationCanceled(address indexed authorizer, bytes32 indexed nonce);
 
     constructor() {
         _CACHED_CHAIN_ID = block.chainid;
@@ -111,21 +118,71 @@ contract MockUSDT {
         bytes32 r,
         bytes32 s
     ) external {
+        _verifyAuth(
+            TRANSFER_WITH_AUTHORIZATION_TYPEHASH, from, to, value, validAfter, validBefore, nonce, v, r, s
+        );
+        authorizationState[from][nonce] = true;
+        emit AuthorizationUsed(from, nonce);
+        _transfer(from, to, value);
+    }
+
+    /// @notice Like `transferWithAuthorization` but the payee must submit it (`to == msg.sender`),
+    ///         which closes the front-running window where a third party replays a pending tx.
+    function receiveWithAuthorization(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external {
+        require(to == msg.sender, "caller must be payee");
+        _verifyAuth(
+            RECEIVE_WITH_AUTHORIZATION_TYPEHASH, from, to, value, validAfter, validBefore, nonce, v, r, s
+        );
+        authorizationState[from][nonce] = true;
+        emit AuthorizationUsed(from, nonce);
+        _transfer(from, to, value);
+    }
+
+    /// @notice Authorizer voids an as-yet-unused authorization nonce (EIP-3009).
+    function cancelAuthorization(address authorizer, bytes32 nonce, uint8 v, bytes32 r, bytes32 s)
+        external
+    {
+        require(!authorizationState[authorizer][nonce], "auth already used");
+        bytes32 structHash = keccak256(abi.encode(CANCEL_AUTHORIZATION_TYPEHASH, authorizer, nonce));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
+        address signer = ecrecover(digest, v, r, s);
+        require(signer != address(0) && signer == authorizer, "invalid signature");
+
+        authorizationState[authorizer][nonce] = true;
+        emit AuthorizationCanceled(authorizer, nonce);
+    }
+
+    /// @dev Shared validity + signature check for transfer/receiveWithAuthorization.
+    function _verifyAuth(
+        bytes32 typeHash,
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) internal view {
         require(block.timestamp > validAfter, "auth not yet valid");
         require(block.timestamp < validBefore, "auth expired");
         require(!authorizationState[from][nonce], "auth already used");
 
-        bytes32 structHash = keccak256(
-            abi.encode(
-                TRANSFER_WITH_AUTHORIZATION_TYPEHASH, from, to, value, validAfter, validBefore, nonce
-            )
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(typeHash, from, to, value, validAfter, validBefore, nonce));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
         address signer = ecrecover(digest, v, r, s);
         require(signer != address(0) && signer == from, "invalid signature");
-
-        authorizationState[from][nonce] = true;
-        emit AuthorizationUsed(from, nonce);
-        _transfer(from, to, value);
     }
 }

@@ -60,4 +60,13 @@ contract IdentityRegistry {
     function totalAgents() external view returns (uint256) {
         return _nextId - 1;
     }
+
+    /// @notice ERC-165. Advertises ERC-165 itself and the ERC-721 *Metadata* extension
+    ///         (name/symbol/tokenURI), which this registry implements. The full ERC-721
+    ///         transfer/approval interface (0x80ac58cd) is intentionally NOT advertised:
+    ///         agent identities are soulbound (non-transferable) in the MVP.
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == 0x01ffc9a7 // ERC-165
+            || interfaceId == 0x5b5e139f; // ERC-721 Metadata (name, symbol, tokenURI)
+    }
 }

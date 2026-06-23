@@ -80,4 +80,78 @@ contract Eip3009Test is Test {
         vm.expectRevert("invalid signature");
         usdt.transferWithAuthorization(alice, bob, 1_000_000, 0, block.timestamp + 300, nonce, v, r, s);
     }
+
+    // --- receiveWithAuthorization ------------------------------------------------
+
+    function _signReceive(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        uint256 pk
+    ) internal view returns (uint8 v, bytes32 r, bytes32 s) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                usdt.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(),
+                from, to, value, validAfter, validBefore, nonce
+            )
+        );
+        bytes32 digest =
+            keccak256(abi.encodePacked("\x19\x01", usdt.DOMAIN_SEPARATOR(), structHash));
+        (v, r, s) = vm.sign(pk, digest);
+    }
+
+    function test_receiveWithAuthorization_payee_pulls_funds() public {
+        bytes32 nonce = keccak256("r1");
+        (uint8 v, bytes32 r, bytes32 s) =
+            _signReceive(alice, bob, 2_000_000, 0, block.timestamp + 300, nonce, alicePk);
+        vm.prank(bob); // payee submits
+        usdt.receiveWithAuthorization(alice, bob, 2_000_000, 0, block.timestamp + 300, nonce, v, r, s);
+        assertEq(usdt.balanceOf(bob), 2_000_000);
+        assertTrue(usdt.authorizationState(alice, nonce));
+    }
+
+    function test_receiveWithAuthorization_non_payee_reverts() public {
+        bytes32 nonce = keccak256("r2");
+        (uint8 v, bytes32 r, bytes32 s) =
+            _signReceive(alice, bob, 1_000_000, 0, block.timestamp + 300, nonce, alicePk);
+        vm.expectRevert("caller must be payee"); // anyone-but-bob (the test contract) submits
+        usdt.receiveWithAuthorization(alice, bob, 1_000_000, 0, block.timestamp + 300, nonce, v, r, s);
+    }
+
+    // --- cancelAuthorization -----------------------------------------------------
+
+    function _signCancel(address authorizer, bytes32 nonce, uint256 pk)
+        internal
+        view
+        returns (uint8 v, bytes32 r, bytes32 s)
+    {
+        bytes32 structHash =
+            keccak256(abi.encode(usdt.CANCEL_AUTHORIZATION_TYPEHASH(), authorizer, nonce));
+        bytes32 digest =
+            keccak256(abi.encodePacked("\x19\x01", usdt.DOMAIN_SEPARATOR(), structHash));
+        (v, r, s) = vm.sign(pk, digest);
+    }
+
+    function test_cancelAuthorization_blocks_later_use() public {
+        bytes32 nonce = keccak256("c1");
+        (uint8 cv, bytes32 cr, bytes32 cs) = _signCancel(alice, nonce, alicePk);
+        usdt.cancelAuthorization(alice, nonce, cv, cr, cs);
+        assertTrue(usdt.authorizationState(alice, nonce));
+
+        // a valid transfer auth on the same nonce now reverts as already-used
+        (uint8 v, bytes32 r, bytes32 s) =
+            _sign(alice, bob, 1_000_000, 0, block.timestamp + 300, nonce, alicePk);
+        vm.expectRevert("auth already used");
+        usdt.transferWithAuthorization(alice, bob, 1_000_000, 0, block.timestamp + 300, nonce, v, r, s);
+    }
+
+    function test_cancelAuthorization_wrong_signer_reverts() public {
+        bytes32 nonce = keccak256("c2");
+        (uint8 v, bytes32 r, bytes32 s) = _signCancel(alice, nonce, 0xBADBADBAD);
+        vm.expectRevert("invalid signature");
+        usdt.cancelAuthorization(alice, nonce, v, r, s);
+    }
 }
