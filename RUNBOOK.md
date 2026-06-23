@@ -22,7 +22,7 @@ prompt-injection-proof spend guardrails, with a live dashboard to observe it.
 
 | Milestone | Feature | Where |
 |---|---|---|
-| **M1** | Local chain (Anvil) + AWS emulation (LocalStack: S3, KMS, Secrets Manager, DynamoDB, SQS) | `docker-compose.yml`, `localstack/init.sh` |
+| **M1** | Local chain (Anvil) + AWS emulation (LocalStack: S3, KMS, Secrets Manager, DynamoDB, SQS) | `infra/docker-compose.yml`, `infra/localstack/init.sh` |
 | **M1** | `MockUSDT` (ERC-20, 6dp), `IdentityRegistry` (ERC-721), `Commerce` (ERC-8183-lite escrow) | `contracts/src/` |
 | **M1** | Agent identity: KMS-encrypted key in Secrets Manager (never plaintext at rest), Agent Card in S3, NFT on-chain | `sdk/plasma_mvp/{keyvault,storage,registry,adapter}.py` |
 | **M2** | The earning loop: buyer escrows → agent poll loop → local model → submit → keeper settles → agent paid | `runtime/{agent,keeper,app}.py` |
@@ -85,7 +85,7 @@ All config lives in `.env` (auto-loaded by the SDK; process env wins over the fi
 | `MODEL_BACKEND` | `stub` | `stub` (no model, used by tests) or `llamacpp` (real container) |
 | `MODEL_BASE_URL` | `http://localhost:8081/v1` | model server (port 8081; dashboard is 8080) |
 
-> **LocalStack is pinned** to `localstack/localstack:3.8.1` in `docker-compose.yml` (the `latest`
+> **LocalStack is pinned** to `localstack/localstack:3.8.1` in `infra/docker-compose.yml` (the `latest`
 > tag requires a paid token — do not switch to `latest`).
 
 ---
@@ -99,7 +99,7 @@ make up
 ```
 
 This: starts Anvil + LocalStack via `docker compose`, waits until both are healthy, seeds the AWS
-resources (`localstack/init.sh`: S3 bucket, KMS key, Secrets Manager path, DynamoDB tables `agents` /
+resources (`infra/localstack/init.sh`: S3 bucket, KMS key, Secrets Manager path, DynamoDB tables `agents` /
 `refuel-ledger` / `spend-events`, SQS queue), builds the contracts, deploys them to Anvil, and writes
 `contracts/deployments/local.json` (the address manifest the SDK reads).
 
@@ -151,20 +151,20 @@ Run these after `make up`, with the venv active. Each block states **what it pro
 ```bash
 # create an agent: generates a key (KMS-encrypted into Secrets Manager), stores an Agent Card in S3,
 # mints an IdentityRegistry NFT on-chain, mirrors the row into DynamoDB.
-python3 cli/studio.py create alpha
+python3 backend/cli/studio.py create alpha
 ```
 **Expect:** prints the agent address, `agentId`, the `s3://agent-cards/<keccak>` card URI, and a tx
 hash.
 
 ```bash
 # resolve the on-chain identity back to its Agent Card (round-trip through chain → S3).
-python3 cli/studio.py resolve alpha
+python3 backend/cli/studio.py resolve alpha
 ```
 **Expect:** `agentId`, owner == the agent address, the card URI, and the decoded card JSON.
 
 ```bash
 # show on-chain balances.
-python3 cli/studio.py balance alpha
+python3 backend/cli/studio.py balance alpha
 ```
 **Expect:** the agent has ~1 ETH (gas float) and 0 USDT.
 
@@ -186,7 +186,7 @@ PY
 
 ```bash
 # act as a buyer: store the request prompt in S3, create + fund an escrowed job for the agent.
-python3 cli/studio.py fund-job alpha --prompt "Summarize: agents that earn stablecoins." --budget 5
+python3 backend/cli/studio.py fund-job alpha --prompt "Summarize: agents that earn stablecoins." --budget 5
 ```
 **Expect:** `funded job <id> for agent 'alpha' (budget 5 USDT)`.
 
@@ -194,12 +194,12 @@ Then drive the loop (the `demo` command runs the agent's poll iteration + waits 
 settles), or use the full one-shot:
 
 ```bash
-python3 cli/studio.py demo --name alpha
+python3 backend/cli/studio.py demo --name alpha
 ```
 **Expect:** `agent submitted jobs: [<id>]`, then `keeper settled jobs: [<id>]`, and the agent's USDT
 balance increases by the budget (e.g. `+5.000000`).
 
-**Real model variant:** `MODEL_BACKEND=llamacpp python3 cli/studio.py demo` (after `make model`) — the
+**Real model variant:** `MODEL_BACKEND=llamacpp python3 backend/cli/studio.py demo` (after `make model`) — the
 result text now comes from the local llama.cpp container instead of the deterministic stub.
 
 ### 5.3 M3 — spend, guardrails, auto-refuel
@@ -207,7 +207,7 @@ result text now comes from the local llama.cpp container instead of the determin
 **Full flow in one command:**
 
 ```bash
-python3 cli/studio.py demo3
+python3 backend/cli/studio.py demo3
 ```
 **Expect output like:**
 ```
