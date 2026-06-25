@@ -1,4 +1,4 @@
-.PHONY: up down status build deploy create resolve test test-contracts test-aws test-e2e test-e2e-m2 test-m3 model demo demo3 serve dashboard worker clean fe fe-build
+.PHONY: up down status build deploy create resolve test test-contracts test-aws test-e2e test-e2e-m2 test-m3 model demo demo3 serve serve-dev dashboard worker clean fe fe-build
 
 # Monorepo layout: backend/ (python) · studio-frontend/ (FE) · contracts/ · infra/ (docker stack)
 COMPOSE := docker compose -f infra/docker-compose.yml
@@ -43,6 +43,9 @@ demo3:         ## M3 e2e — x402 spend within caps + auto-refuel below floor (n
 
 serve:         ## launch the Studio API server (REST + WebSocket + UI) on :8080
 	python3 backend/cli/studio.py serve
+
+serve-dev:     ## same as serve, but auto-restarts on backend/ code changes (dev only)
+	python3 backend/cli/studio.py serve --reload
 
 dashboard: serve   ## deprecated alias for `serve`
 
