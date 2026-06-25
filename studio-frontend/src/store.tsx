@@ -17,6 +17,7 @@ export interface LogEntry {
   time: string;
   html: string;
   kind: LogKind;
+  jobId?: number; // when set, the log line is clickable into the job detail modal
 }
 
 interface StudioCtx {
@@ -24,7 +25,7 @@ interface StudioCtx {
   logs: LogEntry[];
   modal: ReactNode | null;
   toast: (title: string, msg?: string, accent?: Accent) => void;
-  log: (html: string, kind?: LogKind) => void;
+  log: (html: string, kind?: LogKind, jobId?: number) => void;
   openModal: (node: ReactNode) => void;
   closeModal: () => void;
 }
@@ -43,9 +44,9 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3600);
   }, []);
 
-  const log = useCallback((html: string, kind: LogKind = "dim") => {
+  const log = useCallback((html: string, kind: LogKind = "dim", jobId?: number) => {
     const id = ++seq.current;
-    setLogs((l) => [...l.slice(-119), { id, time: nowTime(), html, kind }]);
+    setLogs((l) => [...l.slice(-119), { id, time: nowTime(), html, kind, jobId }]);
   }, []);
 
   const openModal = useCallback((node: ReactNode) => setModal(node), []);

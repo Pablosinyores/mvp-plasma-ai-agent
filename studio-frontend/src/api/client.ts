@@ -6,12 +6,13 @@ import type {
   RefuelResult,
   ResolveResult,
   SpendResult,
+  StrategyState,
   StudioState,
 } from "../types";
 
-async function req<T>(path: string, body?: unknown): Promise<T> {
+async function req<T>(path: string, body?: unknown, method?: string): Promise<T> {
   const res = await fetch(API_BASE + path, {
-    method: body ? "POST" : "GET",
+    method: method ?? (body ? "POST" : "GET"),
     headers: body ? { "content-type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -38,4 +39,9 @@ export const api = {
   spend: (name: string) => req<SpendResult>("/api/spend", { name }),
   refuel: (name: string) => req<RefuelResult>("/api/refuel", { name }),
   injectionTest: () => req<InjectionResult>("/api/injection-test", {}),
+  setStrategy: (name: string, prompt: string) =>
+    req<StrategyState>(`/api/agents/${name}/strategy`, { prompt }),
+  getStrategy: (name: string) => req<StrategyState>(`/api/agents/${name}/strategy`),
+  clearStrategy: (name: string) =>
+    req<{ ok: true }>(`/api/agents/${name}/strategy`, undefined, "DELETE"),
 };

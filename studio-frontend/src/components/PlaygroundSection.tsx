@@ -57,7 +57,7 @@ export function PlaygroundSection({ state }: SectionProps) {
       id = r.jobId;
       setJobId(id);
       setStatus("FUNDED");
-      log(`playground · job <b>#${id}</b> funded — waiting for the worker to run the model…`, "info");
+      log(`playground · job <b>#${id}</b> funded — waiting for the worker to run the model…`, "info", id);
     } catch (e) {
       log(`playground · fund failed: ${(e as Error).message}`, "er");
       toast("run failed", (e as Error).message, "red");
@@ -76,7 +76,7 @@ export function PlaygroundSection({ state }: SectionProps) {
           setOutput(d.output);
           stop();
           setBusy(false);
-          log(`playground · job <b>#${id}</b> answered (${d.status})`, "ok");
+          log(`playground · job <b>#${id}</b> answered (${d.status})`, "ok", id);
           toast("agent answered", `#${id} · ${d.status}`, "green");
           return;
         }

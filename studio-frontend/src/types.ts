@@ -77,8 +77,13 @@ export interface JobDetail {
   ok: boolean;
   jobId: number;
   status: Job["status"];
+  client: string;
   provider: string;
   budget: number;
+  descHash: string;
+  resultHash: string;
+  uri: string;
+  verified: boolean | null;
   output: string | null;
 }
 
@@ -88,6 +93,48 @@ export interface ResolveResult {
   owner: string;
   cardURI: string;
   card: Record<string, unknown>;
+}
+
+// --- agentic trader: a standing strategy + its live ticks (mirrors strategy_ctl.py) ---
+export interface StrategyOrder {
+  op: "swap" | "dca" | "rebalance" | "limit" | "noop";
+  sell?: string;
+  buy?: string;
+  amount?: number;
+  everyTicks?: number;
+  base?: string;
+  quote?: string;
+  targetBps?: number;
+  when?: { sym: string; cmp: "lt" | "gt"; price: number };
+  reason?: string;
+}
+
+export interface StrategyTick {
+  tick?: number;
+  action: "trade" | "hold" | "blocked" | "noop";
+  reason?: string;
+  price?: number;
+  threshold?: number;
+  watch?: string;
+  cmp?: string;
+  sell?: string;
+  buy?: string;
+  amountIn?: number;
+  minOut?: number;
+  notionalUsdc?: number;
+  txHash?: string;
+}
+
+export interface StrategyState {
+  ok?: boolean;
+  name?: string;
+  address: string;
+  strategy: StrategyOrder | null;
+  prompt: string | null;
+  tickCount: number;
+  swapDone: boolean;
+  ticks: StrategyTick[];
+  order?: StrategyOrder; // present on the POST response (the freshly parsed order)
 }
 
 export const EMPTY_STATE: StudioState = {
