@@ -51,6 +51,32 @@ class LocalAdapter:
         )
         self.dispute_window = int(deployments.get("disputeWindow", 5))
 
+        # Optional local swap venue. `tokens` maps symbol -> ERC-20 contract; `pools` maps a
+        # frozenset({symA,symB}) -> MiniAMM. Only built when the manifest carries them, so older
+        # deployments keep working unchanged.
+        self.tokens = {}
+        self.pools = {}
+        self._decimals = {}
+        erc20_abi = _load_abi(self.cfg.contracts_out, "MiniERC20")
+        for sym in ("USDC", "WETH", "WXPL"):
+            if sym in deployments:
+                abi = _load_abi(self.cfg.contracts_out, "WXPL") if sym == "WXPL" else erc20_abi
+                self.tokens[sym] = self.w3.eth.contract(
+                    address=Web3.to_checksum_address(deployments[sym]), abi=abi
+                )
+        amm_abi = _load_abi(self.cfg.contracts_out, "MiniAMM")
+        for key, addr in deployments.items():
+            if key.startswith("Pool_"):
+                a, b = key[len("Pool_"):].split("_")
+                self.pools[frozenset((a, b))] = self.w3.eth.contract(
+                    address=Web3.to_checksum_address(addr), abi=amm_abi
+                )
+
+        # back-compat handles for the original USDC->WETH swap path (SwapGuard/test_swap)
+        self.usdc = self.tokens.get("USDC")
+        self.weth = self.tokens.get("WETH")
+        self.amm = self.pools.get(frozenset(("USDC", "WETH")))
+
     # ---- low-level tx helper -------------------------------------------------
     def _send(self, account, tx: dict) -> dict:
         tx = dict(tx)
@@ -170,6 +196,99 @@ class LocalAdapter:
         )
         receipt = self._send_fn(submitter, fn)
         return receipt["transactionHash"].hex()
+
+    # ---- generic multi-pair venue (any allow-listed token pair) --------------
+    def token_decimals(self, symbol: str) -> int:
+        if symbol not in self._decimals:
+            self._decimals[symbol] = int(self.tokens[symbol].functions.decimals().call())
+        return self._decimals[symbol]
+
+    def token_balance(self, symbol: str, address: str) -> int:
+        return int(self.tokens[symbol].functions.balanceOf(Web3.to_checksum_address(address)).call())
+
+    def mint_token(self, symbol: str, to: str, amount: int) -> str:
+        """Open-mint a mintable test token (USDC/WETH). WXPL is acquired by wrapping/trading, not mint."""
+        if symbol not in ("USDC", "WETH"):
+            raise ValueError("{} is not mintable; wrap or trade for it".format(symbol))
+        fn = self.tokens[symbol].functions.mint(Web3.to_checksum_address(to), int(amount))
+        return self._send_fn(self.relayer, fn)["transactionHash"].hex()
+
+    def find_pool(self, sym_a: str, sym_b: str):
+        return self.pools.get(frozenset((sym_a, sym_b)))
+
+    def quote_trade(self, sell: str, buy: str, amount_in: int) -> int:
+        """On-chain quote: `buy` units out for `amount_in` of `sell` via the (sell,buy) pool."""
+        pool = self.find_pool(sell, buy)
+        if pool is None:
+            raise RuntimeError("no pool for {}/{}".format(sell, buy))
+        return int(pool.functions.quote(self.tokens[sell].address, int(amount_in)).call())
+
+    def spot_price(self, sym: str) -> float:
+        """Live spot price as USDC per 1.0 whole `sym` token, from the (sym,USDC) pool.
+        USDC is 1.0 by definition. Used by conditional/limit orders to evaluate a threshold."""
+        if sym == "USDC":
+            return 1.0
+        one_whole = 10 ** self.token_decimals(sym)
+        usdc_out = self.quote_trade(sym, "USDC", one_whole)
+        return usdc_out / (10 ** self.token_decimals("USDC"))
+
+    def trade(self, account, sell: str, buy: str, amount_in: int, min_out: int) -> dict:
+        """Approve the (sell,buy) pool then swap exact `amount_in` of `sell` for `buy`. Output is sent
+        to `account` itself — this helper never routes output to any other address. TradeGuard owns
+        the policy checks; this just executes."""
+        pool = self.find_pool(sell, buy)
+        if pool is None:
+            raise RuntimeError("no pool for {}/{}".format(sell, buy))
+        self.approve_token(account, self.tokens[sell], pool.address, int(amount_in))
+        fn = pool.functions.swapExactIn(
+            self.tokens[sell].address, int(amount_in), int(min_out), account.address
+        )
+        receipt = self._send_fn(account, fn)
+        return {
+            "txHash": receipt["transactionHash"].hex(),
+            "buyBalance": self.token_balance(buy, account.address),
+        }
+
+    # ---- swap venue (USDC -> WETH via MiniAMM) -------------------------------
+    def _require_amm(self):
+        if self.amm is None:
+            raise RuntimeError("no swap venue in this deployment (USDC/WETH/MiniAMM missing)")
+
+    def usdc_balance(self, address: str) -> int:
+        self._require_amm()
+        return int(self.usdc.functions.balanceOf(Web3.to_checksum_address(address)).call())
+
+    def weth_balance(self, address: str) -> int:
+        self._require_amm()
+        return int(self.weth.functions.balanceOf(Web3.to_checksum_address(address)).call())
+
+    def mint_usdc(self, to: str, amount: int) -> str:
+        """Mint test USDC (6dp). Open mint, like the other local test tokens."""
+        self._require_amm()
+        fn = self.usdc.functions.mint(Web3.to_checksum_address(to), int(amount))
+        return self._send_fn(self.relayer, fn)["transactionHash"].hex()
+
+    def quote_usdc_to_weth(self, amount_in: int) -> int:
+        """On-chain quote: WETH out for `amount_in` USDC (6dp in, 18dp out)."""
+        self._require_amm()
+        return int(self.amm.functions.quote(self.usdc.address, int(amount_in)).call())
+
+    def swap_usdc_for_weth(self, account, amount_in: int, min_out: int) -> dict:
+        """Approve the AMM then swap exact `amount_in` USDC for WETH, output sent to `account`.
+        The recipient is always the swapper itself — this helper never sends output elsewhere.
+        Returns {txHash, amountOut}. Caller (SwapGuard) is responsible for the policy checks."""
+        self._require_amm()
+        self.approve_token(account, self.usdc, self.amm.address, int(amount_in))
+        fn = self.amm.functions.swapExactIn(
+            self.usdc.address, int(amount_in), int(min_out), account.address
+        )
+        receipt = self._send_fn(account, fn)
+        out = int(self.weth.functions.balanceOf(account.address).call())  # post-balance helper for tests
+        return {"txHash": receipt["transactionHash"].hex(), "wethBalance": out}
+
+    def approve_token(self, account, token_contract, spender: str, amount: int) -> str:
+        fn = token_contract.functions.approve(Web3.to_checksum_address(spender), int(amount))
+        return self._send_fn(account, fn)["transactionHash"].hex()
 
     def transfer_usdt(self, account, to: str, amount: int) -> str:
         """Direct ERC-20 transfer (used by auto-refuel: owner tops up an agent)."""
