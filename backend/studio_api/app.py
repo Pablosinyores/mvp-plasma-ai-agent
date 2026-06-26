@@ -29,6 +29,7 @@ sys.path.insert(0, str(REPO_ROOT / "sdk"))
 sys.path.insert(0, str(REPO_ROOT))
 
 from eth_account import Account  # noqa: E402
+from eth_utils import keccak  # noqa: E402
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse  # noqa: E402
@@ -44,10 +45,12 @@ from plasma_mvp.refuel import AutoRefueler, RefuelLedger  # noqa: E402
 from plasma_mvp.registry import Registry  # noqa: E402
 from plasma_mvp.signer import PayeeNotAllowed, SpendCapExceeded, X402Signer  # noqa: E402
 from plasma_mvp.storage import Storage  # noqa: E402
+from plasma_mvp.strategy_store import open_strategy_store  # noqa: E402
 from plasma_mvp import x402  # noqa: E402
 from runtime.resource import X402Client, X402ResourceServer, make_resource_app  # noqa: E402
 
 from cli.studio import _create_agent, _fund_job, _load_agent  # noqa: E402
+from studio_api.strategy_ctl import TraderManager  # noqa: E402
 
 app = FastAPI(title="Plasma Agent Studio")
 
@@ -84,6 +87,24 @@ def _ctx():
         "registry": Registry(aws, _cfg),
         "events": EventLog(aws, _cfg),
     }
+
+
+# --- agentic-trader control plane (set/clear a standing strategy, watch ticks) --------------------
+# Built lazily: the manager needs the chain + (real) KeyVault signer, so we don't construct it at
+# import time. The agent's KMS-backed key is the guard's signer — the strategy prompt only ever picks
+# WHAT to trade; TradeGuard (default caps, recipient pinned to self) decides what's allowed.
+_trader_mgr: "TraderManager | None" = None
+
+
+def _mgr() -> TraderManager:
+    global _trader_mgr
+    if _trader_mgr is None:
+        _trader_mgr = TraderManager(
+            LocalAdapter(_cfg),
+            open_strategy_store(_cfg),
+            lambda name: KeyVault(Aws(_cfg), _cfg).signer_for(name),
+        )
+    return _trader_mgr
 
 
 def _usdt(x) -> float:
@@ -335,18 +356,26 @@ def api_job(job_id: int):
         adapter = LocalAdapter(_cfg)
         j = adapter.get_job(job_id)
         output = None
+        verified = None
         if j["status"] in ("SUBMITTED", "COMPLETED") and j.get("uri"):
             try:
                 raw = Storage(cfg=_cfg).get(j["uri"])
                 output = raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+                # content-addressing check: keccak(stored bytes) must equal the on-chain resultHash
+                verified = keccak(raw if isinstance(raw, (bytes, bytearray)) else raw.encode()) == j["resultHash"]
             except Exception:  # noqa: BLE001
                 output = None
         return {
             "ok": True,
             "jobId": j["jobId"],
             "status": j["status"],
+            "client": j["client"],
             "provider": j["provider"],
             "budget": _usdt(j["budget"]),
+            "descHash": "0x" + j["descHash"].hex(),
+            "resultHash": "0x" + j["resultHash"].hex(),
+            "uri": j["uri"],
+            "verified": verified,
             "output": output,
         }
     except Exception as e:  # noqa: BLE001
@@ -373,6 +402,40 @@ def api_refuel(body: NameBody):
 def api_injection():
     try:
         return _injection_test()
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+# --- standing strategy per agent (the strategy panel) ---------------------------------------------
+class StrategyBody(BaseModel):
+    prompt: str
+
+
+@app.post("/api/agents/{name}/strategy")
+def api_set_strategy(name: str, body: StrategyBody):
+    """Parse a natural-language standing prompt into an order and install it. Persisted + live-ticked."""
+    try:
+        order = _mgr().set_strategy(name, body.prompt)
+        return {"ok": True, "name": name, "order": order, **_mgr().get(name)}
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@app.get("/api/agents/{name}/strategy")
+def api_get_strategy(name: str):
+    """Current strategy + the last N tick results (action · pair · amount · price) for the UI to poll."""
+    try:
+        return {"ok": True, "name": name, **_mgr().get(name)}
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@app.delete("/api/agents/{name}/strategy")
+def api_clear_strategy(name: str):
+    """Stop the agent: drop the standing strategy and clear its persisted record."""
+    try:
+        _mgr().clear(name)
+        return {"ok": True, "name": name}
     except Exception as e:  # noqa: BLE001
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
 
@@ -424,6 +487,11 @@ async def ws(sock: WebSocket):
 async def _broadcast_loop():
     global _latest_json
     while True:
+        # advance every agent that has a live standing strategy by one tick (off the event loop)
+        try:
+            await asyncio.to_thread(_mgr().tick_active)
+        except Exception:  # noqa: BLE001 — chain down / no agents: just skip this round
+            pass
         payload = await asyncio.to_thread(lambda: json.dumps(_state()))
         if payload != _latest_json:
             _latest_json = payload

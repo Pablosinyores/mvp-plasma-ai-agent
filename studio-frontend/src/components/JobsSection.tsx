@@ -3,10 +3,11 @@ import { fmt, short } from "../lib/format";
 import { useStudio } from "../store";
 import type { SectionProps } from "../sections/registry";
 import { JobTimeline } from "./JobTimeline";
+import { JobDetailModal } from "./modals/JobDetailModal";
 import { SectionHead } from "./SectionHead";
 
 export function JobsSection({ state }: SectionProps) {
-  const { log } = useStudio();
+  const { log, openModal, closeModal } = useStudio();
   const prev = useRef<Record<number, string>>({});
   const firstPaint = useRef(true);
   const jobs = state.jobs;
@@ -16,7 +17,7 @@ export function JobsSection({ state }: SectionProps) {
     for (const j of jobs) {
       const was = prev.current[j.jobId];
       if (was !== undefined && was !== j.status) {
-        log(`job <b>#${j.jobId}</b> → <b>${j.status}</b>`, j.status === "COMPLETED" ? "ok" : "info");
+        log(`job <b>#${j.jobId}</b> → <b>${j.status}</b>`, j.status === "COMPLETED" ? "ok" : "info", j.jobId);
       }
       prev.current[j.jobId] = j.status;
     }
@@ -50,7 +51,12 @@ export function JobsSection({ state }: SectionProps) {
                 const changed = was !== undefined && was !== j.status;
                 const isNew = was === undefined && !firstPaint.current;
                 return (
-                  <tr key={j.jobId} className={isNew ? "new" : ""}>
+                  <tr
+                    key={j.jobId}
+                    className={`clickable ${isNew ? "new" : ""}`}
+                    onClick={() => openModal(<JobDetailModal jobId={j.jobId} onClose={closeModal} />)}
+                    title="view result + on-chain receipt"
+                  >
                     <td>#{j.jobId}</td>
                     <td>
                       <span className={`pill p-${j.status} ${changed ? "bump" : ""}`}>{j.status}</span>

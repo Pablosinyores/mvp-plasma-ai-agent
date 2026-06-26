@@ -1,3 +1,5 @@
+import { WalletButton } from "./WalletButton";
+
 interface Props {
   chain?: number;
   connected: boolean;
@@ -11,18 +13,17 @@ export function TopBar({ chain, connected }: Props) {
           <path d="M12 2l8.66 5v10L12 22 3.34 17V7L12 2z" stroke="currentColor" strokeWidth="1.6" />
         </svg>
         PLASMA <small>AGENT&nbsp;STUDIO</small>
+        <span className="demo-badge" title="local-anvil demo environment">DEMO</span>
       </div>
       <div className="spacer" />
-      <span className="chip">
+      <span className="chip hide-sm">
         chain&nbsp;<b style={{ color: "var(--ink)" }}>{chain ?? "—"}</b>
-      </span>
-      <span className="chip">
-        backend&nbsp;<b style={{ color: "var(--ink)" }}>local&nbsp;anvil</b>
       </span>
       <span className="chip">
         <span className={`dot ${connected ? "on" : ""}`} />
         {connected ? "live" : "reconnecting…"}
       </span>
+      <WalletButton />
     </div>
   );
 }

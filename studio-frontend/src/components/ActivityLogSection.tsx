@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useStudio } from "../store";
+import { JobDetailModal } from "./modals/JobDetailModal";
 import { SectionHead } from "./SectionHead";
 
 export function ActivityLogSection() {
-  const { logs } = useStudio();
+  const { logs, openModal, closeModal } = useStudio();
   const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -21,9 +22,19 @@ export function ActivityLogSection() {
         </div>
         <div className="log" ref={boxRef}>
           {logs.map((l) => (
-            <div className="l" key={l.id}>
+            <div
+              className={`l ${l.jobId != null ? "clickable" : ""}`}
+              key={l.id}
+              onClick={
+                l.jobId != null
+                  ? () => openModal(<JobDetailModal jobId={l.jobId!} onClose={closeModal} />)
+                  : undefined
+              }
+              title={l.jobId != null ? `open job #${l.jobId}` : undefined}
+            >
               <span className="t">{l.time}</span>{"  "}
               <span className={l.kind} dangerouslySetInnerHTML={{ __html: l.html }} />
+              {l.jobId != null && <span className="l-go">↗</span>}
             </div>
           ))}
         </div>

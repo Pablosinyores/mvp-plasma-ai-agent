@@ -23,9 +23,14 @@ sys.path.insert(0, str(BACKEND_ROOT / "sdk"))
 sys.path.insert(0, str(BACKEND_ROOT))
 
 import typer  # noqa: E402
+from eth_account import Account  # noqa: E402
 from eth_utils import keccak  # noqa: E402
 
 from plasma_mvp.adapter import LocalAdapter  # noqa: E402
+from plasma_mvp import intent as intent_parser  # noqa: E402
+from plasma_mvp.swap import SwapBlocked, SwapGuard  # noqa: E402
+from plasma_mvp.trade import TradeBlocked, TradeGuard  # noqa: E402
+from plasma_mvp.trader import Trader  # noqa: E402
 from plasma_mvp.aws import Aws  # noqa: E402
 from plasma_mvp.config import load_config  # noqa: E402
 from plasma_mvp.keyvault import KeyVault  # noqa: E402
@@ -242,27 +247,170 @@ def demo(name: str = "demo", prompt: str = "Summarize: agents that earn stableco
                 fg=typer.colors.GREEN)
 
 
+@app.command("swap-demo")
+def swap_demo(
+    usdc: float = typer.Option(2000.0, help="USDC the agent converts to WETH"),
+    cap: float = typer.Option(2500.0, help="per-swap cap (USDC)"),
+    session: float = typer.Option(4000.0, help="session budget (USDC)"),
+):
+    """Guarded USDC -> WETH swap proof. Funds a throwaway agent, runs one capped swap through the
+    SwapGuard, then shows the guard blocking an over-cap swap. Demonstrates the agent CAN trade,
+    but only within bounds and only into its OWN wallet. Needs the swap venue (`make up`/deploy)."""
+    cfg = load_config()
+    adapter = LocalAdapter(cfg)
+    if adapter.amm is None:
+        typer.secho("no swap venue in this deployment — redeploy contracts first", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    U = 1_000_000
+    agent = Account.create()
+    adapter.fund_eth(agent.address, 0.05)              # gas float
+    adapter.mint_usdc(agent.address, int(session * U)) # the agent's own USDC to trade
+    typer.echo("agent {}".format(agent.address))
+    typer.echo("  USDC {:.2f} · WETH {:.6f}".format(
+        adapter.usdc_balance(agent.address) / U, adapter.weth_balance(agent.address) / 1e18))
+
+    guard = SwapGuard(adapter, agent, max_usdc_per_swap=int(cap * U), session_usdc=int(session * U))
+
+    typer.secho("--- guarded swap: {:.0f} USDC -> WETH ---".format(usdc), fg=typer.colors.CYAN)
+    res = guard.buy_weth(int(usdc * U))
+    typer.echo("  quote {:.6f} WETH · minOut {:.6f} (slippage-floored)".format(
+        res["quote"] / 1e18, res["minOut"] / 1e18))
+    typer.secho("  swapped: now USDC {:.2f} · WETH {:.6f}  (output landed in agent's OWN wallet)".format(
+        adapter.usdc_balance(agent.address) / U, adapter.weth_balance(agent.address) / 1e18),
+        fg=typer.colors.GREEN)
+
+    typer.secho("--- guard blocks an over-cap swap ({:.0f} > cap {:.0f}) ---".format(
+        cap + 1000, cap), fg=typer.colors.CYAN)
+    try:
+        guard.buy_weth(int((cap + 1000) * U))
+        typer.secho("  NOT blocked — GUARD FAILED", fg=typer.colors.RED)
+    except SwapBlocked as e:
+        typer.secho("  blocked ✓  ({})".format(e), fg=typer.colors.GREEN)
+
+    typer.secho("swap-demo complete — agent traded within bounds, into its own wallet only.",
+                fg=typer.colors.GREEN)
+
+
+@app.command("trade-demo")
+def trade_demo(
+    prompt: str = typer.Option("DCA buy 500 USDC of XPL every tick",
+                               help="natural-language standing instruction"),
+    ticks: int = typer.Option(4, help="ticks to run the first strategy"),
+    rebalance: str = typer.Option("rebalance to keep 40% USDC and the rest WXPL",
+                                  help="2nd prompt — swapped in live to show dynamic re-tasking"),
+    fund: float = typer.Option(5000.0, help="USDC funded to the agent"),
+    cap: float = typer.Option(2000.0, help="per-trade cap (USDC notional)"),
+    session: float = typer.Option(8000.0, help="session cap (USDC notional)"),
+):
+    """Continuous, prompt-driven agentic trader. Parses a natural-language instruction into a
+    strategy (LLM if MODEL_BACKEND=llamacpp, deterministic fallback otherwise), runs it tick by tick
+    through TradeGuard, then swaps in a SECOND prompt live to show dynamic re-tasking. Every trade is
+    bounded + lands in the agent's own wallet. Needs the multi-pair venue (deploy first)."""
+    from model.gateway import ModelGateway  # local import: only the trader path needs it
+
+    cfg = load_config()
+    adapter = LocalAdapter(cfg)
+    if not adapter.pools:
+        typer.secho("no swap venue in this deployment — redeploy contracts first", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    U = 1_000_000
+    model = ModelGateway()
+    agent = Account.create()
+    adapter.fund_eth(agent.address, 0.05)
+    adapter.mint_token("USDC", agent.address, int(fund * U))
+    typer.echo("agent {}  (model backend: {})".format(agent.address, model.backend))
+
+    guard = TradeGuard(adapter, agent,
+                       max_notional_usdc=int(cap * U), session_notional_usdc=int(session * U))
+    trader = Trader(adapter, guard)
+
+    def _bal():
+        return "USDC {:.2f} · WETH {:.6f} · WXPL {:.4f}".format(
+            adapter.token_balance("USDC", agent.address) / U,
+            adapter.token_balance("WETH", agent.address) / 1e18,
+            adapter.token_balance("WXPL", agent.address) / 1e18)
+
+    def _show(r):
+        if r["action"] == "trade":
+            amt = r["amountIn"] / (10 ** adapter.token_decimals(r["sell"]))
+            typer.secho("  tick {}: traded {:.4f} {} -> {}  (~{:.2f} USDC notional)".format(
+                r["tick"], amt, r["sell"], r["buy"], r["notionalUsdc"] / U), fg=typer.colors.GREEN)
+        elif r["action"] == "blocked":
+            typer.secho("  tick {}: BLOCKED ({})".format(r["tick"], r["reason"]), fg=typer.colors.YELLOW)
+        else:
+            typer.echo("  tick {}: {} ({})".format(r["tick"], r["action"], r.get("reason", "")))
+
+    typer.echo("balances: " + _bal())
+
+    # --- phase 1: the first standing instruction ---
+    order1 = intent_parser.parse(prompt, model=model)
+    typer.secho("\nPROMPT 1: \"{}\"".format(prompt), fg=typer.colors.CYAN)
+    typer.echo("  parsed -> {}".format(order1))
+    trader.set_strategy(order1)
+    trader.run(ticks, on_tick=_show)
+    typer.echo("balances: " + _bal())
+
+    # --- phase 2: re-task the SAME running agent with a new prompt ---
+    order2 = intent_parser.parse(rebalance, model=model)
+    typer.secho("\nDYNAMIC RE-TASK -> PROMPT 2: \"{}\"".format(rebalance), fg=typer.colors.CYAN)
+    typer.echo("  parsed -> {}".format(order2))
+    trader.set_strategy(order2)
+    trader.run(3, on_tick=_show)
+    typer.echo("balances: " + _bal())
+
+    # --- guardrail proof: an over-cap trade is refused (top up first so the CAP is the binding limit) ---
+    adapter.mint_token("USDC", agent.address, int((cap + 2000) * U))
+    typer.secho("\nGUARD CHECK: over-cap trade ({:.0f} > cap {:.0f} USDC), funds available".format(
+        cap + 1000, cap), fg=typer.colors.CYAN)
+    try:
+        guard.trade("USDC", "WXPL", int((cap + 1000) * U))
+        typer.secho("  NOT blocked — GUARD FAILED", fg=typer.colors.RED)
+    except TradeBlocked as e:
+        typer.secho("  blocked ✓  ({})".format(e), fg=typer.colors.GREEN)
+
+    typer.secho("\ntrade-demo complete — one running agent, re-tasked by prompt, bounded throughout.",
+                fg=typer.colors.GREEN)
+
+
 @app.command()
-def serve(port: int = 8080):
+def serve(
+    port: int = 8080,
+    reload: bool = typer.Option(
+        False, "--reload", help="auto-restart on backend code changes (dev only; off for demos)"
+    ),
+):
     """Launch the Studio API server — REST + WebSocket live state + bundled UI — on :8080.
 
     This is the backend the React studio-frontend talks to (create agents, fund jobs, spend,
     refuel, run the injection drill) over JSON + /ws, plus a self-contained fallback UI at `/`.
+
+    Pass --reload while developing so edits to backend/ code take effect without a manual restart.
     """
-    _serve(port)
+    _serve(port, reload)
 
 
 @app.command(hidden=True)
 def dashboard(port: int = 8080):
     """Deprecated alias for `serve` (kept so old `studio dashboard` muscle-memory still works)."""
-    _serve(port)
+    _serve(port, False)
 
 
-def _serve(port: int):
+def _serve(port: int, reload: bool = False):
     import uvicorn
 
-    typer.echo("studio api on http://localhost:{}  (REST + /ws live state + UI)".format(port))
-    uvicorn.run("studio_api.app:app", host="127.0.0.1", port=port, log_level="warning")
+    mode = "  [reload]" if reload else ""
+    typer.echo("studio api on http://localhost:{}  (REST + /ws live state + UI){}".format(port, mode))
+    uvicorn.run(
+        "studio_api.app:app",
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+        reload=reload,
+        # only watch backend source so .venv / node_modules churn never triggers a restart
+        reload_dirs=[str(BACKEND_ROOT)] if reload else None,
+    )
 
 
 @app.command()

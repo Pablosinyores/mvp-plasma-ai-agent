@@ -20,6 +20,37 @@ Carry this into a fresh terminal/session to continue work without losing context
 8. **Frontend** (`studio-frontend/`) — standalone React + Vite app on `:5173`, talks to the backend over REST + WS (env `VITE_API_BASE`). See `studio-frontend/README.md`.
 9. **Tests** (`backend/tests/test_m3.py`) — 11 tests; `_exploding_factory()` proves key never fetched on guardrail failure.
 
+## Agentic trader — limit orders · persistence · strategy panel (DONE)
+Built on the TradeGuard cage (model picks WHAT, guard decides ALLOWED, recipient pinned to self,
+caps/slippage unchanged). All three features ship behind that invariant.
+
+- **(a) Conditional / limit orders.** New `limit` op end to end:
+  - `intent.py` — schema `{"op":"limit","sell","buy","amount","when":{"sym","cmp":"lt|gt","price"}}`,
+    LLM system-prompt guidance, and a deterministic fallback for "… when price < X / > X"
+    (implicit-USDC counterparty for bare "buy/sell ASSET"; `_norm_cmp` maps words/symbols → lt/gt).
+  - `adapter.py` — `spot_price(sym)` = USDC per 1.0 token, from `quote_trade(sym,USDC,1 whole)/1e6`.
+  - `trader.py` — `tick()` evaluates the predicate vs live spot; fires `guard.trade` once then marks
+    `_swap_done`, else returns `hold` with the current price.
+- **(b) Persistence.** `strategy_store.py`: `save/load/delete` keyed by agent address.
+  `FileStrategyStore` (JSON, the working default — **DynamoDB/LocalStack was down**) +
+  `DynamoStrategyStore` drop-in + `open_strategy_store()` factory (prefers Dynamo, falls back to file).
+  `Trader(adapter, guard, store=…)` rehydrates strategy + `tick_count` + `_swap_done` on construction,
+  persists on `set_strategy`/each `tick`; `clear_strategy()` deletes. Store-less Trader = old behavior.
+- **(c) Strategy panel.** `backend/studio_api/strategy_ctl.py` `TraderManager` (one persisted Trader per
+  agent, seeds gas+USDC, keeps last-N ticks). Endpoints in `studio_api/app.py`:
+  `POST/GET/DELETE /api/agents/{name}/strategy` (path keys by **name**, consistent with the rest of the
+  API; store still keys by address). Ticks driven from the broadcast loop. Frontend:
+  `studio-frontend/src/components/StrategySection.tsx` (new "Strategy" nav section) — pick agent, set a
+  standing prompt, Stop, and a live tick feed; api in `src/api/client.ts`, types in `src/types.ts`,
+  styles in `src/styles.css`.
+- **Tests (all green):** `test_intent.py` (limit/when parse), `test_trader.py` (predicate true→trade /
+  false→hold / fires once / gt branch), `test_strategy_store.py` (restart rehydration, one-off & limit
+  not re-fired), `test_strategy_ctl.py` (set/get/clear/drive ticks). `forge test` 35 green; the trader
+  python suites 42 green. FE `npm run build` clean.
+- **Still needs Docker for the real Dynamo path** (`open_strategy_store` falls back to file when down);
+  the panel's live `TraderManager` signer uses the KMS-backed KeyVault, so a server-up smoke needs
+  LocalStack to create agents. Plasma-testnet deploy still blocked on a funded `RELAYER_PK`.
+
 ## Stack
 - **Anvil** chain `:8545`, chainId 31337.
 - **LocalStack** `:4566` (S3/KMS/SecretsManager/DynamoDB/SQS), pinned `localstack/localstack:3.8.1`. Tables: `refuel-ledger`, `spend-events` (key `pk`) — created in `infra/localstack/init.sh`.
