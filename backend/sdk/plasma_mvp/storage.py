@@ -78,6 +78,13 @@ class StorageProvider(ABC):
     @abstractmethod
     def exists(self, uri: str) -> bool: ...
 
+    # put/get aliases so a provider is a drop-in for the legacy `Storage` (.put/.get) call sites.
+    def put(self, data) -> str:
+        return self.upload(data)
+
+    def get(self, uri: str) -> bytes:
+        return self.download(uri)
+
     @staticmethod
     def _coerce(data) -> bytes:
         if isinstance(data, str):
