@@ -72,10 +72,47 @@ class LocalAdapter:
                     address=Web3.to_checksum_address(addr), abi=amm_abi
                 )
 
+        # Optional EIP-7702 session-delegate (the "trade from the user's own address" rail). Only the
+        # implementation ADDRESS lives in the manifest; at runtime the user EOA delegates its code to
+        # it, so calls are made against the *user's* address with this ABI. Kept optional so older
+        # deployments load unchanged.
+        self.session_delegate_address = None
+        self.session_delegate_abi = None
+        if "AgentSessionDelegate" in deployments:
+            self.session_delegate_address = Web3.to_checksum_address(
+                deployments["AgentSessionDelegate"]
+            )
+            self.session_delegate_abi = _load_abi(self.cfg.contracts_out, "AgentSessionDelegate")
+
         # back-compat handles for the original USDC->WETH swap path (SwapGuard/test_swap)
         self.usdc = self.tokens.get("USDC")
         self.weth = self.tokens.get("WETH")
         self.amm = self.pools.get(frozenset(("USDC", "WETH")))
+
+    # ---- deployment sanity ---------------------------------------------------
+    def assert_chain_ready(self, *, require_session=False) -> None:
+        """Fail LOUDLY if the connected chain doesn't actually have the manifest's contracts deployed.
+        Catches the classic footgun where RPC points at the wrong node (e.g. a Docker proxy shadowing
+        localhost:8545 with a fresh default-balance chain) — the manifest loads fine but every call
+        reverts cryptically. Raises a single actionable error instead."""
+        checks = [("MockUSDT", self.addresses.get("MockUSDT")),
+                  ("Commerce", self.addresses.get("Commerce"))]
+        if require_session:
+            checks.append(("AgentSessionDelegate", self.session_delegate_address))
+        missing = []
+        for name, addr in checks:
+            if not addr:
+                missing.append("{} (absent from manifest)".format(name))
+                continue
+            if self.w3.eth.get_code(Web3.to_checksum_address(addr)) in (b"", b"0x", "0x"):
+                missing.append("{} @ {} has no code".format(name, addr))
+        if missing:
+            raise RuntimeError(
+                "chain at {} is not the deployed one — {}. Re-run the deploy against THIS RPC, and "
+                "check `lsof -nP -iTCP:8545 -sTCP:LISTEN` for a Docker proxy shadowing the port.".format(
+                    self.cfg.rpc_url, "; ".join(missing)
+                )
+            )
 
     # ---- low-level tx helper -------------------------------------------------
     def _send(self, account, tx: dict) -> dict:
@@ -196,6 +233,16 @@ class LocalAdapter:
         )
         receipt = self._send_fn(submitter, fn)
         return receipt["transactionHash"].hex()
+
+    # ---- EIP-7702 session delegate (trade from the user's own address) -------
+    def session_at(self, user_address: str):
+        """Web3 contract bound to a *user EOA* that has delegated its code to AgentSessionDelegate.
+        Calls (installSession / revokeSession / executeTrade / views) run in the user's context."""
+        if self.session_delegate_abi is None:
+            raise RuntimeError("no AgentSessionDelegate in this deployment")
+        return self.w3.eth.contract(
+            address=Web3.to_checksum_address(user_address), abi=self.session_delegate_abi
+        )
 
     # ---- generic multi-pair venue (any allow-listed token pair) --------------
     def token_decimals(self, symbol: str) -> int:

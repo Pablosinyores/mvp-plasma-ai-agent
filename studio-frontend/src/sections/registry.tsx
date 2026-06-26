@@ -10,6 +10,7 @@ import { FeedSecuritySection } from "../components/FeedSecuritySection";
 import { JobsSection } from "../components/JobsSection";
 import { OverviewSection } from "../components/OverviewSection";
 import { PlaygroundSection } from "../components/PlaygroundSection";
+import { Session7702Section } from "../components/Session7702Section";
 import { StrategySection } from "../components/StrategySection";
 import { VizSection } from "../components/VizSection";
 
@@ -33,6 +34,7 @@ export const SECTIONS: SectionDef[] = [
   { id: "agents", path: "agents", label: "Agents", blurb: "On-chain identities, balances & actions", Component: AgentsSection },
   { id: "playground", path: "playground", label: "Playground", blurb: "Drive agents interactively", Component: PlaygroundSection },
   { id: "strategy", path: "strategy", label: "Strategy", blurb: "Standing trading strategies & live ticks", Component: StrategySection },
+  { id: "my-wallet", path: "my-wallet", label: "My Wallet", blurb: "Trade from your own address (EIP-7702)", Component: Session7702Section },
   { id: "jobs", path: "jobs", label: "Jobs", blurb: "Funded work and settlement", Component: JobsSection },
   { id: "analytics", path: "analytics", label: "Analytics", blurb: "Spend, earnings & flow", Component: VizSection },
   { id: "feed-security", path: "security", label: "Security", blurb: "Guards, caps & injection drills", Component: FeedSecuritySection },

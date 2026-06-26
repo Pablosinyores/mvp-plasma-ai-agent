@@ -51,6 +51,7 @@ from runtime.resource import X402Client, X402ResourceServer, make_resource_app  
 
 from cli.studio import _create_agent, _fund_job, _load_agent  # noqa: E402
 from studio_api.strategy_ctl import TraderManager  # noqa: E402
+from studio_api.session_ctl import SessionManager  # noqa: E402
 
 app = FastAPI(title="Plasma Agent Studio")
 
@@ -105,6 +106,19 @@ def _mgr() -> TraderManager:
             lambda name: KeyVault(Aws(_cfg), _cfg).signer_for(name),
         )
     return _trader_mgr
+
+
+# --- EIP-7702 user-funded rail (trade from the connected wallet's own address) --------------------
+# The wallet authorizes once (delegate + installSession); the backend holds only a scoped session key
+# and relays trades via the keeper. The on-chain delegate enforces every money-bound.
+_session_mgr: "SessionManager | None" = None
+
+
+def _smgr() -> SessionManager:
+    global _session_mgr
+    if _session_mgr is None:
+        _session_mgr = SessionManager(LocalAdapter(_cfg), open_strategy_store(_cfg))
+    return _session_mgr
 
 
 def _usdt(x) -> float:
@@ -440,6 +454,93 @@ def api_clear_strategy(name: str):
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
 
 
+# --- EIP-7702 user-funded rail endpoints ----------------------------------------------------------
+class AuthorizeBody(BaseModel):
+    maxInPerTrade: int          # base units of the funding token (USDC, 6dp)
+    sessionInCap: int
+    slippageBps: int = 100
+    expirySecs: int = 86400
+    buys: list = ["WXPL"]
+    funding: str = "USDC"
+
+
+@app.post("/api/session/{user}/authorize")
+def api_session_authorize(user: str, body: AuthorizeBody):
+    """Return the EIP-7702 delegation authorization + installSession policy for the wallet to sign.
+    Mints a fresh server-side session key (custodies nothing) and registers it for this user."""
+    try:
+        return {"ok": True, **_smgr().authorize(
+            user, max_in_per_trade=body.maxInPerTrade, session_in_cap=body.sessionInCap,
+            slippage_bps=body.slippageBps, expiry_secs=body.expirySecs, buys=body.buys, funding=body.funding)}
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@app.post("/api/session/{user}/installed")
+def api_session_installed(user: str):
+    """The wallet confirms it has delegated + installed on-chain; flip the session live for ticking."""
+    try:
+        _smgr().mark_installed(user)
+        return {"ok": True, **_smgr().get(user)}
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@app.post("/api/session/{user}/dev-bootstrap")
+def api_session_dev_bootstrap(user: str):
+    """DEMO-ONLY: locally play the wallet (delegate + installSession + seed funds) so the panel works
+    end-to-end without a browser wallet. Only the well-known Anvil demo accounts are accepted."""
+    try:
+        return {"ok": True, **_smgr().dev_bootstrap(user)}
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@app.post("/api/session/{user}/strategy")
+def api_session_set_strategy(user: str, body: StrategyBody):
+    """Install a standing prompt that trades from the user's own wallet via the session rail."""
+    try:
+        order = _smgr().set_strategy(user, body.prompt)
+        return {"ok": True, "order": order, **_smgr().get(user)}
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@app.get("/api/session/{user}/strategy")
+def api_session_get_strategy(user: str):
+    """Current user-rail strategy + live ticks + on-chain policy/spent (for the panel to poll)."""
+    try:
+        return {"ok": True, **_smgr().get(user)}
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@app.delete("/api/session/{user}/strategy")
+def api_session_clear_strategy(user: str):
+    """Stop ticking the user-rail strategy (does not revoke the on-chain session)."""
+    try:
+        _smgr().clear(user)
+        return {"ok": True, "user": user}
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@app.post("/api/session/{user}/revoke")
+def api_session_revoke(user: str):
+    """DEMO-ONLY: submit revokeSession on the demo wallet's behalf and stop the loop. In production the
+    response's calldata would be handed to the wallet to submit instead."""
+    try:
+        payload = _smgr().revoke_payload(user)
+        out = {"ok": True, "revoke": payload}
+        try:
+            out.update(_smgr().dev_revoke(user))   # actually revoke on-chain for the local demo
+        except Exception:  # noqa: BLE001 — not a demo wallet / already cleared; calldata still returned
+            pass
+        return out
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
 # ================================================================================================ #
 # Legacy HTML fragment (kept so `curl /panel` + the demo script still work)                        #
 # ================================================================================================ #
@@ -491,6 +592,11 @@ async def _broadcast_loop():
         try:
             await asyncio.to_thread(_mgr().tick_active)
         except Exception:  # noqa: BLE001 — chain down / no agents: just skip this round
+            pass
+        # and every user-funded (7702) session strategy
+        try:
+            await asyncio.to_thread(_smgr().tick_active)
+        except Exception:  # noqa: BLE001
             pass
         payload = await asyncio.to_thread(lambda: json.dumps(_state()))
         if payload != _latest_json:

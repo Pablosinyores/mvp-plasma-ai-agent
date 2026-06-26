@@ -5,10 +5,21 @@ import type {
   JobDetail,
   RefuelResult,
   ResolveResult,
+  SessionAuthorizeResult,
+  SessionState,
   SpendResult,
   StrategyState,
   StudioState,
 } from "../types";
+
+export interface AuthorizePolicy {
+  maxInPerTrade: number; // funding-token base units (USDC, 6dp)
+  sessionInCap: number;
+  slippageBps?: number;
+  expirySecs?: number;
+  buys?: string[];
+  funding?: string;
+}
 
 async function req<T>(path: string, body?: unknown, method?: string): Promise<T> {
   const res = await fetch(API_BASE + path, {
@@ -44,4 +55,21 @@ export const api = {
   getStrategy: (name: string) => req<StrategyState>(`/api/agents/${name}/strategy`),
   clearStrategy: (name: string) =>
     req<{ ok: true }>(`/api/agents/${name}/strategy`, undefined, "DELETE"),
+
+  // --- EIP-7702 user-funded rail (trade from the connected wallet's own address) ---
+  sessionAuthorize: (user: string, policy: AuthorizePolicy) =>
+    req<SessionAuthorizeResult>(`/api/session/${user}/authorize`, policy),
+  // DEMO: locally play the wallet (delegate + installSession + seed funds). Prod = wallet self-signs.
+  sessionBootstrap: (user: string) =>
+    req<SessionState>(`/api/session/${user}/dev-bootstrap`, {}),
+  // PROD: the wallet did the delegation + installSession on-chain itself; flip the session live.
+  sessionInstalled: (user: string) =>
+    req<SessionState>(`/api/session/${user}/installed`, {}),
+  sessionSetStrategy: (user: string, prompt: string) =>
+    req<SessionState>(`/api/session/${user}/strategy`, { prompt }),
+  sessionGet: (user: string) => req<SessionState>(`/api/session/${user}/strategy`),
+  sessionStop: (user: string) =>
+    req<{ ok: true }>(`/api/session/${user}/strategy`, undefined, "DELETE"),
+  sessionRevoke: (user: string) =>
+    req<{ ok: true; revoke: { sessionKey: string } }>(`/api/session/${user}/revoke`, {}),
 };
