@@ -123,6 +123,47 @@ export interface StrategyTick {
   minOut?: number;
   notionalUsdc?: number;
   txHash?: string;
+  // present on the EIP-7702 user-funded rail
+  rail?: string;
+  from?: string;
+  spentIn?: number;
+}
+
+// --- EIP-7702 "trade from your own wallet" rail (mirrors session_ctl.py) ---
+export interface SessionPolicy {
+  active: boolean;
+  expiry: number;
+  fundingToken: string;
+  maxInPerTrade: number;
+  sessionInCap: number;
+  spentIn: number;
+  maxSlippageBps: number;
+}
+
+export interface SessionAuthorizeResult {
+  ok?: boolean;
+  user: string;
+  delegate: string;
+  sessionKey: string;
+  chainId: number;
+  authorization: { chainId: number; address: string; nonce: number };
+  install: { to: string; function: string; policy: Record<string, unknown>; buys: string[]; pools: string[] };
+}
+
+export interface SessionState {
+  ok?: boolean;
+  user: string;
+  authorized: boolean;
+  installed?: boolean;
+  rail?: string;
+  sessionKey?: string;
+  delegate?: string;
+  strategy?: StrategyOrder | null;
+  prompt?: string | null;
+  tickCount?: number;
+  swapDone?: boolean;
+  ticks?: StrategyTick[];
+  policy?: SessionPolicy | null;
 }
 
 export interface StrategyState {
