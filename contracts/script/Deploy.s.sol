@@ -5,6 +5,9 @@ import {Script, console2} from "forge-std/Script.sol";
 import {MockUSDT} from "../src/MockUSDT.sol";
 import {IdentityRegistry} from "../src/IdentityRegistry.sol";
 import {Commerce} from "../src/Commerce.sol";
+import {AgenticCommerce} from "../src/AgenticCommerce.sol";
+import {OptimisticPolicy} from "../src/OptimisticPolicy.sol";
+import {EvaluatorRouter} from "../src/EvaluatorRouter.sol";
 import {MiniERC20} from "../src/MiniERC20.sol";
 import {MiniAMM} from "../src/MiniAMM.sol";
 import {WXPL} from "../src/WXPL.sol";
@@ -34,6 +37,10 @@ contract Deploy is Script {
             "and confirm RPC points at THAT node (a Docker proxy may shadow :8545)"
         );
 
+        // Manifest accumulator the SDK + CLI consume. Declared early so each deploy block can write
+        // its addresses directly and we don't have to carry them as run()-level locals (stack budget).
+        string memory obj = "deployments";
+
         vm.startBroadcast(pk);
 
         // small dispute window so local demos settle in seconds
@@ -42,6 +49,29 @@ contract Deploy is Script {
         MockUSDT usdt = new MockUSDT();
         IdentityRegistry identity = new IdentityRegistry();
         Commerce commerce = new Commerce(address(usdt), disputeWindow);
+
+        // --- standards-aligned commerce stack (ERC-8183 kernel + optimistic policy + router) ---
+        // Settlement is permissionless via the router, which reads the policy verdict and drives the
+        // kernel to pay the provider (minus protocol fee) or refund the client. Reputation accrues to
+        // the provider's identity through the kernel's authorized evaluator path.
+        // Scoped in a block so the temporaries free the stack (avoids stack-too-deep); addresses are
+        // serialized into the manifest right here rather than carried as outer locals.
+        {
+            uint16 feeBps = uint16(vm.envOr("FEE_BPS", uint256(250)));
+            uint256 quorum = vm.envOr("QUORUM", uint256(1));
+            AgenticCommerce agentic = new AgenticCommerce(address(usdt), feeBps, me);
+            OptimisticPolicy policy = new OptimisticPolicy(disputeWindow, quorum);
+            EvaluatorRouter router = new EvaluatorRouter(address(agentic), address(policy));
+            agentic.setRouter(address(router));
+            agentic.setRegistry(address(identity));
+            identity.setEvaluator(address(agentic));
+            policy.setVoter(me, true); // deployer is the default dispute voter for local demos
+            vm.serializeAddress(obj, "AgenticCommerce", address(agentic));
+            vm.serializeAddress(obj, "OptimisticPolicy", address(policy));
+            vm.serializeAddress(obj, "EvaluatorRouter", address(router));
+            vm.serializeUint(obj, "feeBps", feeBps);
+            vm.serializeUint(obj, "quorum", quorum);
+        }
 
         // --- local multi-pair swap venue for the guarded agentic trader ---
         // tokens: USDC (6dp), WETH (18dp), WXPL (18dp, wrapped native — the XPL stand-in)
@@ -89,8 +119,7 @@ contract Deploy is Script {
 
         vm.stopBroadcast();
 
-        // Write a manifest the SDK + CLI consume. Keys match sdk/plasma_mvp/adapter.py.
-        string memory obj = "deployments";
+        // Finish the manifest the SDK + CLI consume. Keys match sdk/plasma_mvp/adapter.py.
         vm.serializeUint(obj, "chainId", block.chainid);
         vm.serializeUint(obj, "disputeWindow", disputeWindow);
         vm.serializeAddress(obj, "MockUSDT", address(usdt));

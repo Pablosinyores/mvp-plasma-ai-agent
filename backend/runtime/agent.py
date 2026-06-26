@@ -18,7 +18,7 @@ from plasma_mvp.adapter import LocalAdapter  # noqa: E402
 from plasma_mvp.aws import Aws  # noqa: E402
 from plasma_mvp.config import load_config  # noqa: E402
 from plasma_mvp.keyvault import KeyVault  # noqa: E402
-from plasma_mvp.storage import Storage  # noqa: E402
+from plasma_mvp.storage import get_storage  # noqa: E402
 
 sys.path.insert(0, str(REPO_ROOT))
 from model.gateway import ModelGateway  # noqa: E402
@@ -33,12 +33,14 @@ def _hexkey(value) -> str:
 
 
 class AgentRuntime:
-    def __init__(self, name, cfg=None, on_job=None, model=None):
+    def __init__(self, name, cfg=None, on_job=None, model=None, storage=None):
         self.name = name
         self.cfg = cfg or load_config()
         self.aws = Aws(self.cfg)
         self.kv = KeyVault(self.aws, self.cfg)
-        self.storage = Storage(self.aws, self.cfg)
+        # Pluggable content-addressed backend selected by STORAGE_BACKEND (s3 default, or local/ipfs).
+        # Providers expose put/get aliases so this is a drop-in for the legacy S3 Storage helper.
+        self.storage = storage or get_storage(cfg=self.cfg)
         self.adapter = LocalAdapter(self.cfg)
         self.model = model or ModelGateway()
         self.account = self.kv.signer_for(name)  # in-memory key only

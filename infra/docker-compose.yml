@@ -24,6 +24,17 @@ services:
       # auto-seed buckets/keys/tables/queues once LocalStack reports ready
       - "./localstack/init.sh:/etc/localstack/init/ready.d/init.sh"
 
+  # IPFS (Kubo) node — durable content-addressed storage backend for agent deliverables/cards.
+  # API on 5001 (used by IPFSStorageProvider), gateway on 8080. Selected with STORAGE_BACKEND=ipfs;
+  # the default `s3` path doesn't need it, so it's harmless to leave running or stopped.
+  ipfs:
+    image: ipfs/kubo:v0.29.0
+    ports:
+      - "5001:5001"
+      - "8080:8080"
+    volumes:
+      - "ipfs-data:/data/ipfs"
+
   # Model node — llama.cpp OpenAI-compatible server, CPU. This containerized model stands in for
   # an EC2 GPU/compute instance (MLX/Metal can't run in a Linux container, so the local container
   # uses CPU llama.cpp). Not started by `make up`; bring it up with `make model` (first run pulls
@@ -41,3 +52,4 @@ services:
 
 volumes:
   llama-cache:
+  ipfs-data:

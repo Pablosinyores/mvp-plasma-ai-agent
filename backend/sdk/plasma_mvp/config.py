@@ -40,6 +40,10 @@ class Config:
     kms_key_alias: str
     ddb_table: str
     sqs_queue: str
+    # storage
+    storage_backend: str
+    storage_local_path: str
+    ipfs_api_url: str
     # paths
     deployments_path: Path
     contracts_out: Path
@@ -72,6 +76,11 @@ def load_config() -> Config:
         kms_key_alias=os.environ.get("KMS_KEY_ALIAS", "alias/agent-master"),
         ddb_table=os.environ.get("DDB_TABLE", "agents"),
         sqs_queue=os.environ.get("SQS_QUEUE", "settle"),
+        storage_backend=os.environ.get("STORAGE_BACKEND", "s3"),
+        storage_local_path=os.environ.get(
+            "STORAGE_LOCAL_PATH", str(REPO_ROOT / ".agent" / "storage")
+        ),
+        ipfs_api_url=os.environ.get("IPFS_API_URL", "http://localhost:5001"),
         deployments_path=REPO_ROOT / "contracts" / "deployments" / "local.json",
         contracts_out=REPO_ROOT / "contracts" / "out",
     )
