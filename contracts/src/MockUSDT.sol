@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+/// @notice Minimal EIP-1271 interface — a contract/7702-account `from` proves a signature valid by
+///         returning this magic value from isValidSignature(hash, signature).
+interface IERC1271 {
+    function isValidSignature(bytes32 hash, bytes calldata signature)
+        external
+        view
+        returns (bytes4 magicValue);
+}
+
 /// @title MockUSDT
 /// @notice Minimal, self-contained ERC-20 used as the local settlement asset on Anvil.
 ///         6 decimals to match real USDT semantics (so unit math matches production).
@@ -30,6 +39,9 @@ contract MockUSDT {
 
     bytes32 private immutable _CACHED_DOMAIN_SEPARATOR;
     uint256 private immutable _CACHED_CHAIN_ID;
+
+    // EIP-1271 magic value: bytes4(keccak256("isValidSignature(bytes32,bytes)"))
+    bytes4 private constant _EIP1271_MAGIC = 0x1626ba7e;
 
     // authorizationState[authorizer][nonce] — true once a nonce is spent (replay guard)
     mapping(address => mapping(bytes32 => bool)) public authorizationState;
@@ -155,8 +167,7 @@ contract MockUSDT {
         require(!authorizationState[authorizer][nonce], "auth already used");
         bytes32 structHash = keccak256(abi.encode(CANCEL_AUTHORIZATION_TYPEHASH, authorizer, nonce));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
-        address signer = ecrecover(digest, v, r, s);
-        require(signer != address(0) && signer == authorizer, "invalid signature");
+        require(_isValidSig(authorizer, digest, v, r, s), "invalid signature");
 
         authorizationState[authorizer][nonce] = true;
         emit AuthorizationCanceled(authorizer, nonce);
@@ -182,7 +193,27 @@ contract MockUSDT {
         bytes32 structHash =
             keccak256(abi.encode(typeHash, from, to, value, validAfter, validBefore, nonce));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash));
-        address signer = ecrecover(digest, v, r, s);
-        require(signer != address(0) && signer == from, "invalid signature");
+        require(_isValidSig(from, digest, v, r, s), "invalid signature");
+    }
+
+    /// @dev Validate `(v,r,s)` over `digest` for `signer`, the OpenZeppelin SignatureChecker way:
+    ///      try plain ecrecover first; if the recovered key isn't `signer` (e.g. `signer` is a
+    ///      contract or a 7702-delegated EOA holding no matching key), fall back to an EIP-1271
+    ///      isValidSignature() staticcall on `signer`. This is the branch that lets a smart-account
+    ///      payer authorize EIP-3009 spend for the gasless single-token UX (EIP-7702 + ERC-4337).
+    function _isValidSig(address signer, bytes32 digest, uint8 v, bytes32 r, bytes32 s)
+        internal
+        view
+        returns (bool)
+    {
+        address recovered = ecrecover(digest, v, r, s);
+        if (recovered != address(0) && recovered == signer) {
+            return true;
+        }
+        // EIP-1271 fallback: pack r||s||v into the 65-byte signature the standard expects.
+        bytes memory sig = abi.encodePacked(r, s, v);
+        (bool ok, bytes memory ret) =
+            signer.staticcall(abi.encodeWithSelector(IERC1271.isValidSignature.selector, digest, sig));
+        return ok && ret.length >= 32 && abi.decode(ret, (bytes32)) == bytes32(_EIP1271_MAGIC);
     }
 }
