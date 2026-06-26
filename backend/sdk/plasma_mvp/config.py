@@ -10,6 +10,17 @@ from pathlib import Path
 # monorepo root: backend/sdk/plasma_mvp/config.py -> repo root (contracts/, infra/, .env live here)
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
+# Canonical ERC-4337 EntryPoint v0.7 (same address on every chain it is deployed to).
+DEFAULT_ENTRYPOINT_V07 = "0x0000000071727De22E5E9d8BAf0edAc6f37da032"
+
+# GAS_TIER selects how the user pays for gas (issue #8 — gasless single-token UX):
+#   native-float : user holds native gas + USDT (baseline; no abstraction).
+#   usdt-as-gas  : USDT is the gas token; no native float needed.
+#   7702-4337    : EOA delegates (EIP-7702) to a smart account and an ERC-4337 paymaster
+#                  sponsors gas, settling the user's spend in USDT — fully gasless single-token.
+VALID_GAS_TIERS = ("native-float", "usdt-as-gas", "7702-4337")
+DEFAULT_GAS_TIER = "native-float"
+
 
 def _load_dotenv(path: Path) -> None:
     """Populate os.environ from a .env file without overriding already-set vars."""
@@ -44,6 +55,10 @@ class Config:
     storage_backend: str
     storage_local_path: str
     ipfs_api_url: str
+    # gas abstraction (ERC-4337 / EIP-7702 — issue #8)
+    entrypoint_address: str
+    paymaster_address: str
+    gas_tier: str
     # paths
     deployments_path: Path
     contracts_out: Path
@@ -81,6 +96,19 @@ def load_config() -> Config:
             "STORAGE_LOCAL_PATH", str(REPO_ROOT / ".agent" / "storage")
         ),
         ipfs_api_url=os.environ.get("IPFS_API_URL", "http://localhost:5001"),
+        entrypoint_address=os.environ.get("ENTRYPOINT_ADDRESS", DEFAULT_ENTRYPOINT_V07),
+        paymaster_address=os.environ.get("PAYMASTER_ADDRESS", ""),
+        gas_tier=_gas_tier(),
         deployments_path=REPO_ROOT / "contracts" / "deployments" / "local.json",
         contracts_out=REPO_ROOT / "contracts" / "out",
     )
+
+
+def _gas_tier() -> str:
+    """Read GAS_TIER, validating it against the supported tiers so a typo fails loudly."""
+    tier = os.environ.get("GAS_TIER", DEFAULT_GAS_TIER)
+    if tier not in VALID_GAS_TIERS:
+        raise ValueError(
+            "GAS_TIER={!r} is not one of {}".format(tier, VALID_GAS_TIERS)
+        )
+    return tier
