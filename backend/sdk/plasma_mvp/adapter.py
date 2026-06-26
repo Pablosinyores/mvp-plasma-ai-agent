@@ -84,6 +84,30 @@ class LocalAdapter:
             )
             self.session_delegate_abi = _load_abi(self.cfg.contracts_out, "AgentSessionDelegate")
 
+        # Optional standards-aligned commerce stack: ERC-8183 kernel (AgenticCommerce) settled via a
+        # permissionless EvaluatorRouter that reads an OptimisticPolicy verdict. Only wired when the
+        # manifest carries the addresses, so older deployments load unchanged.
+        self.agentic_commerce = None
+        self.optimistic_policy = None
+        self.evaluator_router = None
+        if "AgenticCommerce" in deployments:
+            self.agentic_commerce = self.w3.eth.contract(
+                address=Web3.to_checksum_address(deployments["AgenticCommerce"]),
+                abi=_load_abi(self.cfg.contracts_out, "AgenticCommerce"),
+            )
+        if "OptimisticPolicy" in deployments:
+            self.optimistic_policy = self.w3.eth.contract(
+                address=Web3.to_checksum_address(deployments["OptimisticPolicy"]),
+                abi=_load_abi(self.cfg.contracts_out, "OptimisticPolicy"),
+            )
+        if "EvaluatorRouter" in deployments:
+            self.evaluator_router = self.w3.eth.contract(
+                address=Web3.to_checksum_address(deployments["EvaluatorRouter"]),
+                abi=_load_abi(self.cfg.contracts_out, "EvaluatorRouter"),
+            )
+        self.fee_bps = int(deployments.get("feeBps", 0))
+        self.quorum = int(deployments.get("quorum", 1))
+
         # back-compat handles for the original USDC->WETH swap path (SwapGuard/test_swap)
         self.usdc = self.tokens.get("USDC")
         self.weth = self.tokens.get("WETH")
